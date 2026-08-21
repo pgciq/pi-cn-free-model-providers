@@ -576,6 +576,33 @@ const ZEN_FREE_MODELS = [
     contextWindow: 200000,
     maxTokens: 128000,
   },
+  // Added per issue #1 (2026-08): both verified free on Zen and present in
+  // the live /v1/models list; metadata from models.dev (opencode provider).
+  // pi's message format only carries text/image, so video/audio/pdf input
+  // modalities are not advertised even though upstream accepts them.
+  {
+    id: "x-preview-f-free",
+    name: "Ox Alpha Free",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1000000,
+    maxTokens: 131072,
+  },
+  {
+    id: "muse-spark-1.2-contributor-free",
+    name: "Muse Spark 1.2 Free",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1048576,
+    maxTokens: 131072,
+    // Geo-fenced upstream: direct connections from CN get 403 RegionError;
+    // reachable via overseas egress. Kept registered (free + live-listed).
+    regionLocked: true,
+  },
 ];
 const SENSENOVA_MODELS = [
   {
@@ -620,16 +647,9 @@ const SENSENOVA_MODELS = [
   },
 ];
 const SILICONFLOW_MODELS = [
-  {
-    id: "nex-agi/Nex-N2-Pro",
-    name: "Nex-N2-Pro (397B MoE, 免费)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 262144,
-    maxTokens: 65536,
-  },
+  // nex-agi/Nex-N2-Pro removed (issue #1): no longer free on SiliconFlow.
+  // Drift detection can't catch this (the id stays listed in /v1/models and
+  // that endpoint exposes no pricing), so it must be dropped manually here.
   {
     id: "Qwen/Qwen3-8B",
     name: "Qwen3-8B (免费)",

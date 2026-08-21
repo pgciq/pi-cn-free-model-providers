@@ -1,6 +1,6 @@
 {
   "name": "pi-opencode-native",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "pi (AI coding agent CLI) extension: native-channel access to OpenCode Zen free models plus SenseNova / SiliconFlow / ModelScope / NVIDIA NIM / Cloudflare / Agnes AI (int+cn) providers, bypassing the 429 FreeUsageLimitError via opencode-native headers. Providers self-register apiKey: \"public\" so no auth.json setup is required.",
   "type": "module",
   "main": "pi-opencode-native-ext.mjs",

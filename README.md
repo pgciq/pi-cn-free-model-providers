@@ -1,6 +1,6 @@
 # pi-opencode-native
 
-让 [pi](https://github.com/Codeks/pi)（AI 编码助手 CLI）通过原生通道调用 **OpenCode Zen 免费模型**（6 个），解决第三方客户端直接调用时遭遇的 **429 FreeUsageLimitError** 限流问题。
+让 [pi](https://github.com/Codeks/pi)（AI 编码助手 CLI）通过原生通道调用 **OpenCode Zen 免费模型**（8 个），解决第三方客户端直接调用时遭遇的 **429 FreeUsageLimitError** 限流问题。
 
 ## 问题背景
 
@@ -96,8 +96,10 @@ pi --model opencode-fix/hy3-free
 | `hy3-free` | 复杂/终端类任务 |
 | `laguna-s-2.1-free` | 长时程 agent 编码 |
 | `mimo-v2.5-free` | 多模态 |
+| `muse-spark-1.2-contributor-free` | Muse Spark 1.2 免费版（编码专项：代码生成/调试/仓库理解，1M 上下文，文本+图像输入）。⚠️ 有地区围栏：国内直连返回 403 RegionError，需代理出口 |
 | `nemotron-3-ultra-free` | 超长上下文（1M） |
 | `nemotron-3.5-lightning-free` | 高速执行 |
+| `x-preview-f-free` | Ox Alpha 匿名 stealth 推理模型（编码/agent/工具调用，1M 上下文，文本+图像输入） |
 
 TUI 内 **Ctrl+P** 循环切换模型。
 
@@ -142,19 +144,18 @@ pi --provider sensenova --model sensenova/deepseek-v4-flash
 
 ### 硅基流动 (SiliconFlow)
 
-国内直连，编码模型强。Nex-N2-Pro（397B MoE，SWE-Bench 80.8）**完全免费**。
+国内直连。⚠️ `nex-agi/Nex-N2-Pro` 已于 2026-08 转为付费（[issue #1](https://github.com/pgciq/pi-opencode-native/issues/1)），已从白名单移除；目前仅保留免费轻量模型 Qwen3-8B。
 
 ```bash
 # 在 https://cloud.siliconflow.cn 注册实名，获取 key
 export SILICONFLOW_API_KEY=sk-xxx
 
 # 使用
-pi -p --provider siliconflow --model siliconflow/nex-agi/Nex-N2-Pro "你好"
+pi -p --provider siliconflow --model siliconflow/Qwen/Qwen3-8B "你好"
 ```
 
 | 模型 ID | 说明 | 上下文 | 限额 |
 |---|---|---|---|
-| `nex-agi/Nex-N2-Pro` | Nex-N2-Pro (397B MoE，编码≈GPT-5.5，文本+图像) | 256K | 免费 |
 | `Qwen/Qwen3-8B` | Qwen3-8B 通用对话 | 256K | 免费 |
 
 ### 魔塔社区 (ModelScope)
@@ -277,8 +278,7 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 
 | 供应商 | 模型 | 规模 | 上下文 | 能力定位 | 实测 |
 |---|---|---|---|---|---|
-| 硅基流动 | `nex-agi/Nex-N2-Pro` | 397B MoE (17B 激活) | 256K | 🏆 旗舰编码/agent：SWE-Bench Pro 58.8（微超 GPT-5.5）、Terminal-Bench 2.1 75.3（超 Opus 4.7）、SWE Verified 80.8；中文友好（基座 Qwen3.5）；最难真实任务（DeepSWE 33.6）仍有差距 | ✅ |
-| 硅基流动 | `Qwen/Qwen3-8B` | 8B dense | 256K | 轻量通用，响应快 | ✅ |
+| 硅基流动 | `Qwen/Qwen3-8B` | 8B dense | 256K | 轻量通用，响应快（Nex-N2-Pro 已转付费移除） | ✅ |
 | 魔塔社区 | `Qwen/Qwen3-Coder-30B-A3B-Instruct` | 30B MoE (3B 激活) | 128K | 中端编码向：SWE-bench Lite 49.7%（88 百分位）；**唯一开箱即用**的 ModelScope 模型 | ✅ |
 | 魔塔社区 | `deepseek-ai/DeepSeek-V4-Pro` | 1.6T MoE (49B 激活) | **1M** | 顶级推理 + **1M 超长上下文**（整仓库/长文档分析独一档）+ 中文世界知识第一（Chinese-SimpleQA 84.4，仅次 Gemini-3.1-Pro）；抽象推理偏弱（ARC-AGI-2 46%） | ❌ 需开通 |
 | NVIDIA | `openai/gpt-oss-120b` | 117B MoE (5.1B 激活) | 128K | 数学/工具调用强（AIME 95.8、Codeforces 2463，接近 o4-mini）；**中文致命伤**（C-Eval 42% vs MMLU 90%） | ✅ |
@@ -300,17 +300,17 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 
 | 场景 | 选它 |
 |---|---|
-| 日常编码 / agent 开发（默认主力） | **硅基 Nex-N2-Pro**（免费 + 综合最强） |
+| 日常编码 / agent 开发（默认主力） | **Zen `muse-spark-1.2-contributor-free`**（编码专项 + 1M 上下文）或 Agnes `agnes-2.5-flash`（512K 免费） |
 | 免费长上下文（512K）/ 双站可选 | **Agnes `agnes-2.5-flash`**（国际站海外直连）或 `agnes-cn/agnes-2.5-flash`（中国站国内直连，速度更稳） |
 | 超长上下文 / 长程开发管线 | SenseNova `glm-5.2`（开箱即用）、魔塔 `DeepSeek-V4-Pro`（需开通额度）或 **Agnes `agnes-2.5-pro`**（1M，付费） |
 | 付费强推理（编码/科学/终端） | **Agnes `agnes-2.5-pro`**（1M 上下文，AA 智能榜 #9） |
-| 中文任务 | Nex-N2-Pro 或 DeepSeek-V4-Pro（**勿用 GPT-OSS-120B**） |
+| 中文任务 | DeepSeek-V4-Pro 或 SenseNova `deepseek-v4-flash` / `glm-5.2`（**勿用 GPT-OSS-120B**） |
 | 多模态（文本+图像） | SenseNova `sensenova-6.8-flash-lite`、Cloudflare `gemma-4-26b` 或 Agnes `agnes-2.5-flash` |
 | 英文数学、结构化输出 | **NVIDIA GPT-OSS-120B** |
 | 海外网络兜底 / agent 工作流 | **Cloudflare `glm-4.7-flash`**（额度独立，工具调用完整兼容） |
 | 限流兜底、轻量快速 | ModelScope Qwen3-Coder-30B / 硅基 Qwen3-8B |
 
-**推荐组合**：主力 `siliconflow/nex-agi/Nex-N2-Pro` + 兜底 `modelscope/Qwen/Qwen3-Coder-30B-A3B-Instruct`（额度独立，主力限流时顶上）；国内长上下文/双通道用 `agnes-cn/agnes-2.5-flash`，长上下文推理/多模态需求切 SenseNova/Agnes，特殊场景按需切换。
+**推荐组合**：主力 `opencode-fix/muse-spark-1.2-contributor-free`（Zen 免费编码专项）或 `agnes-cn/agnes-2.5-flash` + 兜底 `modelscope/Qwen/Qwen3-Coder-30B-A3B-Instruct`（额度独立，主力限流时顶上）；长上下文推理/多模态需求切 SenseNova/Agnes，特殊场景按需切换。
 
 ⚠️ 各平台免费额度均注明 "limited time"，模型可能随时下架/改名/转付费（NVIDIA 实测已下架 3 个模型），且免费期会话数据可能被用于改进模型，**勿发敏感内容、勿当生产依赖**。
 
@@ -407,12 +407,6 @@ opencode run -m cloudflare-workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct "你�
         "apiKey": "{env:SILICONFLOW_API_KEY}"
       },
       "models": {
-        "nex-agi/Nex-N2-Pro": {
-          "name": "Nex-N2-Pro (397B MoE, 免费)",
-          "limit": { "context": 262144, "output": 65536 },
-          "reasoning": true, "tool_call": true, "attachment": true,
-          "cost": { "input": 0, "output": 0 }
-        },
         "Qwen/Qwen3-8B": {
           "name": "Qwen3-8B (免费)",
           "limit": { "context": 262144, "output": 65536 },
@@ -536,7 +530,7 @@ opencode run -m cloudflare-workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct "你�
 ```bash
 # CLI
 opencode run -m sensenova/sensenova-6.7-flash-lite "你好"
-opencode run -m siliconflow/nex-agi/Nex-N2-Pro "你好"
+opencode run -m siliconflow/Qwen/Qwen3-8B "你好"
 opencode run -m modelscope/Qwen/Qwen3-Coder-30B-A3B-Instruct "你好"
 opencode run -m nvidia/openai/gpt-oss-120b "你好"
 opencode run -m agnes/agnes-2.5-flash "你好"
