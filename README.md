@@ -111,7 +111,7 @@ cat ~/.pi/agent/auth.json
 ```json
 {
   "defaultProvider": "opencode-zen",
-  "defaultModel": "hy3-free"
+  "defaultModel": "mimo-v2.5-free"
 }
 ```
 
@@ -125,7 +125,7 @@ pi -p "Reply with exactly OK"
 pi
 
 # 指定模型
-pi --model opencode-zen/hy3-free
+pi --model opencode-zen/mimo-v2.5-free
 ```
 
 ### 可用免费模型
@@ -133,13 +133,12 @@ pi --model opencode-zen/hy3-free
 | 模型 ID | 说明 |
 |---|---|
 | `big-pickle` | 匿名 stealth 模型（社区确认底层≈DeepSeek V4 Flash） |
-| `hy3-free` | 复杂/终端类任务 |
 | `laguna-s-2.1-free` | 长时程 agent 编码 |
 | `mimo-v2.5-free` | 多模态 |
 | `nemotron-3-ultra-free` | 超长上下文（1M） |
 | `nemotron-3.5-lightning-free` | 高速执行 |
 
-> `x-preview-f-free`（Ox Alpha）已转为付费并从 Zen 目录移除，因此不再注册。历史模型状态请以实时目录和价格探测为准。
+> `x-preview-f-free`（Ox Alpha）已转为付费并从 Zen 目录移除，因此不再注册。`hy3-free` 已于 2026-09 从目录消失（探测 401 not supported），一并移除。历史模型状态请以实时目录和价格探测为准。
 >
 > 🔭 **变动监听**：`.github/workflows/opencode-zen-watch.yml` 每日巡检 `/v1/models`，并使用匿名 `public` key 对在册模型做最小探测；模型消失或返回鉴权/计费拒绝时自动创建或更新维护 Issue。网络错误、429 和 5xx 只记为 UNKNOWN，不会误判为付费。
 
@@ -252,9 +251,8 @@ pi -p --provider nvidia --model nvidia/openai/gpt-oss-20b "你好"
 | `minimaxai/minimax-m3` | MiniMax 推理模型：TTFB 0.8s / ~70 tok/s | 128K | ✅ |
 | `nvidia/nemotron-3-nano-30b-a3b` | Nemotron 3 Nano MoE（思考型）：TTFB 0.8s / ~80 tok/s | 128K | ✅ |
 | `moonshotai/kimi-k3` | Moonshot 旗舰：生成偏慢（~5-18 tok/s） | 128K | ⚠️ 慢 |
-| `nvidia/llama-3.3-nemotron-super-49b-v1.5` | Nemotron Super 思考型：思维链消耗大量 max_tokens，有效速度慢 | 128K | ⚠️ 慢 |
 
-> 实测排除：`deepseek-v4-flash-0731`（读超时 ×2）、`stepfun-ai/step-3.7-flash`（HTTP 500）、`kimi-k2.6` / `mistralai/codestral-22b`（HTTP 404 免费账号无权限）、`openai/gpt-oss-120b`（本地 + CI 双网络连续超时，巡检确认后移除；Cloudflare 站有同名模型兑底）。工具调用兼容性未逐一验证。
+> 实测排除：`deepseek-v4-flash-0731`（读超时 ×2）、`stepfun-ai/step-3.7-flash`（HTTP 500）、`kimi-k2.6` / `mistralai/codestral-22b`（HTTP 404 免费账号无权限）、`openai/gpt-oss-120b`（本地 + CI 双网络连续超时，巡检确认后移除；Cloudflare 站有同名模型兑底）、`nvidia/llama-3.3-nemotron-super-49b-v1.5`（2026-08-31 从目录移除，探活 HTTP 410）、`deepseek-ai/deepseek-v4-pro-0813`（目录新增但无免费档证据，未收录）。工具调用兼容性未逐一验证。
 
 > 🔭 **变动监听**：`.github/workflows/nvidia-watch.yml` 每周巡检（04:11 UTC）：匿名目录比对捕获下线/改名 + 仓库密钥对在册模型发微型流式探活（捕获「在册但不可用/无权限」）+ 重点厂商新增条目扫描提示评估收录；基线与指纹存 `.github/watch-state/` 由 workflow 自动提交。需配置 secret `NVIDIA_NIM_API_KEY`。
 
@@ -275,7 +273,6 @@ pi -p --provider agnes-cn --model agnes-cn/agnes-2.5-pro "你好"
 | 模型 ID | 说明 | 上下文 | 限额/价格 |
 |---|---|---|---|
 | `agnes-2.5-flash` | 全量升级版：编码专项、agent 工作流、工具调用、图像理解 | 512K | 免费（限时） |
-| `agnes-2.0-flash` | 上一代快速模型（Claw-Eval 排名 #9） | 512K | 免费（限时） |
 | `agnes-2.5-pro` | 付费推理旗舰：高级编码、科学推理、长上下文、agent 终端任务 | 1M | $0.45/M 输入、$0.90/M 输出 |
 | `agnes-2.5-pro-alpha` | 打榜版付费推理模型（同上基准参考） | 1M | $0.45/M 输入、$0.90/M 输出 |
 | `agnes-image-2.0-flash` | 图像生成专用模型 | — | `/v1/images/generations` |
@@ -284,6 +281,8 @@ pi -p --provider agnes-cn --model agnes-cn/agnes-2.5-pro "你好"
 | `agnes-video-2.5` | 视频生成模型 | — | `/v1/videos` + 状态轮询 |
 | `agnes-video-2.5-flash` | 视频生成模型 | — | `/v1/videos` + 状态轮询 |
 
+> `agnes-2.0-flash` 已官方标记 Deprecated（2026-08，迁移至 `agnes-2.5-flash`），不再注册。
+>
 > Agnes 图像模型使用 `/v1/images/generations`，视频模型使用 `/v1/videos` 并轮询 `/agnesapi?video_id=...`；生成结果分别保存到 `.pi/generated-images/` 和 `.pi/generated-videos/`，保存路径在 TUI 中渲染为可点击的 `file://` 链接（OSC 8 超链接）。
 
 > 🔭 **变动监听**：`.github/workflows/agnes-watch.yml` 每周巡检（04:35 UTC）：单模型文档页缺失＝疑似下线/改名；Flash 系文档「当前价格」非 $0＝限时免费撤销（最大风险）；参数指纹基线比对捕获原位升级/计费调整；`llms.txt` 全目录扫描发现新版本提示评估收录。全程匿名无需密钥。
@@ -341,7 +340,7 @@ export CLOUDFLARE_API_KEY=your-api-token
 
 \* 按 10,000 Neurons/天 ÷ 该模型每百万输出 token 的 neurons 单价估算，输入另计。⚠️ = 额度杀手：`deepseek-r1-distill` 输出单价高达 443,756 neurons/M（推理模型输出又长，最容易打穿当日额度）；`llama-3.3-70b-fast` 输出 204,805/M 且输入 26,668/M——塞一个 10 万 token 仓库上下文就吃掉日额度的 27%。
 
-> ⚠️ **付费模型未注册**：`deepseek-v4-flash-0731`、`deepseek-v4-pro-0813`、`glm-5.2`、`kimi-k2.6`、`kimi-k2.7-code` 需 Workers Paid 账单或 AI Gateway 预付额度，免费额度调用会失败，本扩展（及 opencode blacklist）已排除。
+> ⚠️ **付费模型未注册**：`deepseek-v4-flash-0731`、`deepseek-v4-pro-0813`、`glm-5.2`、`glm-5.3`、`glm-5.3-flash`、`kimi-k2.6`、`kimi-k2.7-code` 需 Workers Paid 账单或 AI Gateway 预付额度，免费额度调用会失败，本扩展（及 opencode blacklist）已排除。
 
 > 🔭 **变动监听**：`.github/workflows/cloudflare-watch.yml` 每周巡检（03:47 UTC）双向检测：① 在册模型从官方目录页消失即报——运行时 `filterToLive` 对 Cloudflare 不生效（其 models 端点按账号鉴权），此工作流是唯一兜底；② 新模型发现——官方定价页按模型列出 Neurons 单价，新上架即被捕获，并自动按 10,000 Neurons/天免费额度换算日输出预算分级提示（≥100K tokens/天“优先评估”、30–100K“可用但偏耗额度”、<30K“额度杀手”；对标 gpt-oss-120b ≈147K）。基线存 `.github/watch-state/` 由 workflow 自动提交，全程匿名无需密钥。
 
@@ -396,7 +395,6 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 | Cloudflare | `@cf/qwen/qwen2.5-coder-32b-instruct` | 32B | 32K（实测） | 代码专用，工具调用为 XML 文本（非标准） | ⚠️ |
 | Cloudflare | `@cf/google/gemma-4-26b-a4b-it` | 26B MoE (4B 激活) | 128K | 多模态（文本+图像） | ✅ |
 | Agnes | `agnes-2.5-flash` | — | 512K | 免费 512K 长上下文：编码专项、agent 工作流、工具调用、图像理解；全量升级版 | ✅ |
-| Agnes | `agnes-2.0-flash` | — | 512K | 免费，上一代快速模型（Claw-Eval 排名 #9，Pass³ 60.9%） | ✅ |
 | Agnes | `agnes-2.5-pro` | — | **1M** | 付费推理旗舰：高级编码、科学推理、长上下文分析、agent 终端任务（Artificial Analysis 智能排名 #9/153，TerminalBench v2.1 67.0%，GPQA 87.6%）；$0.45/M 输入、$0.90/M 输出 | ✅ |
 | Agnes | `agnes-2.5-pro-alpha` | — | **1M** | 打榜版付费推理（基准数据同 pro，付费） | ✅ |
 
@@ -441,6 +439,8 @@ TUI 内 `/models` 即可看到 `cloudflare-workers-ai/@cf/...` 全部免费模�
         "@cf/deepseek-ai/deepseek-v4-flash-0731",
         "@cf/deepseek-ai/deepseek-v4-pro-0813",
         "@cf/zai-org/glm-5.2",
+        "@cf/zai-org/glm-5.3",
+        "@cf/zai-org/glm-5.3-flash",
         "@cf/moonshotai/kimi-k2.6",
         "@cf/moonshotai/kimi-k2.7-code"
       ]
@@ -577,12 +577,6 @@ opencode run -m cloudflare-workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct "你�
           "reasoning": true, "tool_call": true, "attachment": true,
           "cost": { "input": 0, "output": 0 }
         },
-        "agnes-2.0-flash": {
-          "name": "Agnes 2.0 Flash",
-          "limit": { "context": 512000, "output": 65536 },
-          "reasoning": true, "tool_call": true, "attachment": true,
-          "cost": { "input": 0, "output": 0 }
-        },
         "agnes-2.5-pro": {
           "name": "Agnes 2.5 Pro",
           "limit": { "context": 1048576, "output": 65536 },
@@ -607,12 +601,6 @@ opencode run -m cloudflare-workers-ai/@cf/qwen/qwen2.5-coder-32b-instruct "你�
       "models": {
         "agnes-2.5-flash": {
           "name": "Agnes 2.5 Flash",
-          "limit": { "context": 512000, "output": 65536 },
-          "reasoning": true, "tool_call": true, "attachment": true,
-          "cost": { "input": 0, "output": 0 }
-        },
-        "agnes-2.0-flash": {
-          "name": "Agnes 2.0 Flash",
           "limit": { "context": 512000, "output": 65536 },
           "reasoning": true, "tool_call": true, "attachment": true,
           "cost": { "input": 0, "output": 0 }
@@ -665,7 +653,7 @@ opencode 原生方式不经过 `cleanBody`，但实测标准对话/工具调用�
 
 ## 注意事项
 
-1. **模型歧义**：若机器上也配置了 pi 内置 `opencode` provider 且带 key，裸 `--model hy3-free` 等模型 ID 会报 "ambiguous across providers"。解决：显式 `--provider opencode-zen`，或删除内置 opencode 的 key，或将 defaultProvider 设为 `opencode-zen`。
+1. **模型歧义**：若机器上也配置了 pi 内置 `opencode` provider 且带 key，裸 `--model mimo-v2.5-free` 等模型 ID 会报 "ambiguous across providers"。解决：显式 `--provider opencode-zen`，或删除内置 opencode 的 key，或将 defaultProvider 设为 `opencode-zen`。
 2. **限流是共享的**：匿名 `public` key 的免费额度是全 Zen 用户共享的（社区实测约 200 请求/天兜底，官方未公布固定配额），到达后返回 429 `FreeUsageLimitError`，需等待重置。人越多额度越紧张。
 3. **UA 门可能变化**：本扩展写死 `User-Agent: opencode/1.15.5`。OpenCode 官方若调整版本号或免费门控策略，免费通道可能失效，需同步更新本文件中的 `OPENCODE_STATIC_HEADERS`。
 4. **数据条款**：免费模型的免费期内，**提交的数据可能被用于改进模型**（官方隐私声明明确例外）。切勿发送敏感/机密内容。`nemotron-*` 为 NVIDIA 试用端点，禁止提交个人或机密数据，会话会被记录。

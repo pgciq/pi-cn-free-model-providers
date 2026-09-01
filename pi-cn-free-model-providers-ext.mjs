@@ -1030,20 +1030,11 @@ async function run(stream, output, model, context, options, cfg) {
 // Chat and verified image-generation models. Image models use the native
 // /v1/images/generations endpoint rather than chat completions. Limits from:
 // https://wiki.agnes-ai.com/en/docs/agnes-25-flash.md (and agnes-20-flash.md)
+// agnes-2.0-flash 已于 2026-08 官方标记 Deprecated（迁移至 agnes-2.5-flash）并移除。
 const AGNES_MODELS = [
   {
     id: "agnes-2.5-flash",
     name: "Agnes 2.5 Flash",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 512000,
-    maxTokens: 65536,
-  },
-  {
-    id: "agnes-2.0-flash",
-    name: "Agnes 2.0 Flash",
     api: "openai-completions",
     reasoning: true,
     input: ["text", "image"],
@@ -1140,16 +1131,6 @@ const ZEN_FREE_MODELS = [
   {
     id: "mimo-v2.5-free",
     name: "MiMo-V2.5 Free",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
-    maxTokens: 128000,
-  },
-  {
-    id: "hy3-free",
-    name: "Hy3 Free",
     api: "openai-completions",
     reasoning: true,
     input: ["text"],
@@ -1393,7 +1374,10 @@ const MODELSCOPE_MODELS = [
 // Excluded: deepseek-v4-flash-0731 (read timeout x2), stepfun step-3.7-flash
 // (HTTP 500), kimi-k2.6 / codestral-22b (HTTP 404 not entitled on free accounts),
 // gpt-oss-120b (persistent read-timeouts confirmed by local benchmark + the
-// nvidia-watch CI probe across two networks; Cloudflare carries the same model).
+// nvidia-watch CI probe across two networks; Cloudflare carries the same model),
+// nvidia/llama-3.3-nemotron-super-49b-v1.5 (removed from catalog 2026-08-31,
+// probe HTTP 410 Gone), deepseek-ai/deepseek-v4-pro-0813 (catalog 2026-08-31,
+// no free-tier evidence; Cloudflare carries it behind paid billing).
 const NVIDIA_MODELS = [
   // Benchmark winner: TTFB 0.8s, ~130 tok/s.
   {
@@ -1432,17 +1416,6 @@ const NVIDIA_MODELS = [
   {
     id: "moonshotai/kimi-k3",
     name: "Kimi K3 (via NVIDIA NIM)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
-  // Thinking model; reasoning consumes most of max_tokens -> slow effective speed.
-  {
-    id: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    name: "Llama 3.3 Nemotron Super 49B v1.5 (via NVIDIA NIM)",
     api: "openai-completions",
     reasoning: true,
     input: ["text"],
