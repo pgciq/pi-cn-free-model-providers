@@ -2061,6 +2061,12 @@ function registerCapabilitiesCommand(pi) {
 // Background drift/probe pass. Best-effort: a failure leaves the already
 // registered (curated or cached) models untouched, so the user is never blocked.
 async function verifyAndUpdateModels(pi) {
+  // Honor the same 24h cache TTL that loadCache() enforces at boot. Without
+  // this guard the background probe runs unconditionally on every startup and
+  // clobbers a previously-good catalog whenever a flaky-window 1-token probe
+  // (e.g. Console 500 storms) fails a healthy model. A fresh cache means the
+  // currently-registered catalog is authoritative; skip the re-probe entirely.
+  if (loadCache()) return;
   // Overall safety net so a pathological network can never strand this task.
   const signal = AbortSignal.timeout(45000);
   const zenHeaders = {
