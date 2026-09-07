@@ -62,8 +62,8 @@ jobs:
               continue
             fi
             new_fp=$(grep -E '上下文窗口|最大输出|标准价格|当前价格' /tmp/doc.md \
-              | sed 's/[[:space:]]*//g' | sort | sha256sum | cut -d' ' -f1)
-            old_fp=$(grep -m1 "^${id} " /tmp/fp_base.txt 2>/dev/null | awk '{print $2}')
+              | sed 's/[[:space:]]*//g' | sort | sha256sum | cut -d' ' -f1 || echo '')
+            old_fp=$(grep -m1 "^${id} " /tmp/fp_base.txt 2>/dev/null | awk '{print $2}' || echo '')
             echo "$id $new_fp" >> /tmp/fp_new.txt
             if [ -n "$old_fp" ] && [ "$old_fp" != "$new_fp" ]; then
               printf '%s\t参数指纹变化（疑似原位升级或计费调整，请人工核验文档）\n' "$id" >> /tmp/anomalies.txt
@@ -71,7 +71,7 @@ jobs:
             case "$id" in
               *flash*)
                 prices=$(grep -E '^\| (输入|输出) Token' /tmp/doc.md \
-                  | awk -F'|' '{print $4}' | grep -o '\$[0-9.]*')
+                  | awk -F'|' '{print $4}' | grep -o '\$[0-9.]*' || true)
                 if [ -z "$prices" ]; then
                   printf '%s\t价格表缺失（文档结构变更，请人工核验）\n' "$id" >> /tmp/anomalies.txt
                 elif echo "$prices" | grep -qv '^\$0$'; then
