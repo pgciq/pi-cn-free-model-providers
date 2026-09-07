@@ -1,9 +1,10 @@
 name: siliconflow-model-watch
 
 # 硅基流动官方"更新公告"会提前约 7 天公布模型下线/计费调整。
-# 本工作流每周抓取公告（Mintlify 文档站支持直接拉取 Markdown），
-# 与扩展内 curated 模型清单比对，命中即自动开 issue 提醒人工核验。
-# 数据源：https://docs.siliconflow.cn/cn/release-notes/overview.md （公开、无需鉴权）
+# 本工作流每周抓取公告，与扩展内 curated 模型清单比对，命中即自动开 issue 提醒人工核验。
+# 数据源：https://docs.siliconflow.cn/cn/release-notes/overview （公开、无需鉴权）
+# 注意：SiliconFlow 文档站已转为 Next.js SPA，.md 端点返回 404；
+# 改为拉取 HTML 后用 sed 剥离标签提取纯文本，再执行匹配。
 
 on:
   schedule:
@@ -21,10 +22,14 @@ jobs:
 
       - name: Fetch official release notes
         run: |
+          # Fetch HTML page, strip tags to get plain text
           curl -fsSL --max-time 30 \
-            "https://docs.siliconflow.cn/cn/release-notes/overview.md" \
-            -o /tmp/notes.md
-          wc -c /tmp/notes.md
+            "https://docs.siliconflow.cn/cn/release-notes/overview" \
+            -o /tmp/notes.html
+          # Remove scripts, styles, and HTML tags; normalize whitespace
+          sed -E 's/<script[^>]*>.*<\/script>//Ig; s/<style[^>]*>.*<\/style>//Ig; s/<[^>]+>//g; s/&nbsp;/ /g; s/&amp;/\&/g; s/&lt;/</g; s/&gt;/>/g; s/&quot;/"/g' \
+            /tmp/notes.html | tr -s '[:space:]' '\n' | sed '/^$/d' > /tmp/notes.txt
+          wc -l /tmp/notes.txt
 
       - name: Extract curated siliconflow model ids
         run: |
@@ -39,7 +44,7 @@ jobs:
           : > /tmp/hits.txt
           while IFS= read -r id; do
             [ -z "$id" ] && continue
-            lines=$(grep -- "$id" /tmp/notes.md \
+            lines=$(grep -F -- "$id" /tmp/notes.txt \
               | grep -E '下线|计费|付费|转付' | head -3 || true)
             if [ -n "$lines" ]; then
               printf '【%s】\n%s\n\n' "$id" "$lines" >> /tmp/hits.txt
@@ -58,7 +63,7 @@ jobs:
           {
             printf '官方更新公告命中本扩展在册的硅基流动模型，请核验免费标注是否失效。\n\n'
             printf '```\n%s\n```\n\n' "$(cat /tmp/hits.txt)"
-            printf '参考：\n- 公告原文: https://docs.siliconflow.cn/cn/release-notes/overview\n- 核验方法: 模型广场 biz_info 计价接口逐个比对（所有计价项为 ¥0 才算免费），并与 `/v1/models` 在架列表取交集\n- 更新位置: `SILICONFLOW_MODELS`（pi-cn-free-model-providers-ext.mjs）、README 对应表格与推荐组合\n'
+            printf '参考：\n- 公告原文: https://docs.siliconflow.cn/cn/release-notes/overview （SiliconFlow 文档站）\n- 核验方法: 模型广场 biz_info 计价接口逐个比对（所有计价项为 ¥0 才算免费），并与 `/v1/models` 在架列表取交集\n- 更新位置: `SILICONFLOW_MODELS`（pi-cn-free-model-providers-ext.mjs）、README 对应表格与推荐组合\n'
           } > /tmp/body.md
           gh issue create \
             --title "⚠️ SiliconFlow 公告涉及在册模型，请核验免费标注 ($(date +%F))" \
