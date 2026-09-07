@@ -1139,16 +1139,6 @@ const ZEN_FREE_MODELS = [
     maxTokens: 128000,
   },
   {
-    id: "laguna-s-2.1-free",
-    name: "Laguna S 2.1 Free",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
-    maxTokens: 128000,
-  },
-  {
     id: "nemotron-3-ultra-free",
     name: "Nemotron 3 Ultra Free",
     api: "openai-completions",
@@ -1241,6 +1231,27 @@ const SENSENOVA_MODELS = [
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 262144,
     maxTokens: 4096,
+  },
+  // Added 2026-09-07 per watch #15 — both free (pricing all "0"), 1M context.
+  {
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro (via SenseNova)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1048576,
+    maxTokens: 65536,
+  },
+  {
+    id: "kimi-k3",
+    name: "Kimi K3 (via SenseNova)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1048576,
+    maxTokens: 65536,
   },
 ];
 // 免费清单 2026-08-22 经模型广场 biz_info 计价接口逐个核验，并与 /v1/models 在架列表取交集。
@@ -1394,17 +1405,6 @@ const NVIDIA_MODELS = [
   {
     id: "minimaxai/minimax-m3",
     name: "MiniMax M3 (via NVIDIA NIM)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
-  // Thinking model; TTFB 0.8s, ~80 tok/s.
-  {
-    id: "nvidia/nemotron-3-nano-30b-a3b",
-    name: "Nemotron 3 Nano 30B A3B (via NVIDIA NIM)",
     api: "openai-completions",
     reasoning: true,
     input: ["text"],
