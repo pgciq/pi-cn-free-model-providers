@@ -196,15 +196,19 @@ function normalizeTools(tools) {
 
 // ── SSE parsing ──
 function processDelta(state, delta) {
-  if (delta.reasoning_content) {
+  // AMD Radeon Cloud's vLLM/sglang gateway emits `reasoning`, while most
+  // OpenAI-compatible gateways use `reasoning_content`. Accept both wire
+  // names and expose the same pi thinking block.
+  const reasoning = delta.reasoning_content ?? delta.reasoning;
+  if (reasoning) {
     if (state.thinkingBlockIndex === -1) {
       state.thinkingBlockIndex = state.output.content.length;
       state.output.content.push({ type: "thinking", thinking: "" });
       state.stream.push({ type: "thinking_start", contentIndex: state.thinkingBlockIndex, partial: state.output });
     }
     const block = state.output.content[state.thinkingBlockIndex];
-    block.thinking += delta.reasoning_content;
-    state.stream.push({ type: "thinking_delta", contentIndex: state.thinkingBlockIndex, delta: delta.reasoning_content, partial: state.output });
+    block.thinking += reasoning;
+    state.stream.push({ type: "thinking_delta", contentIndex: state.thinkingBlockIndex, delta: reasoning, partial: state.output });
   }
   if (delta.content) {
     if (state.thinkingBlockIndex !== -1) {
@@ -905,6 +909,10 @@ const streamModelScope = (model, context, options) => {
   return streamModelScopeChat(model, context, options);
 };
 const streamNvidia = makeOpenAIStream("https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY");
+const AMD_URL = "https://developer.amd.com.cn/radeon/api/v1";
+const streamAmd = makeOpenAIStream(AMD_URL, "AMD_API_KEY", {
+  maxTokens: (model) => model.maxTokens ?? 65536,
+});
 
 // Agnes AI — OpenAI-compatible gateway (apihub.agnes-ai.com = 国际站,
 // api.agnes-ai.cn = 中国站). Same model lineup on both. Supports
@@ -1424,6 +1432,62 @@ const NVIDIA_MODELS = [
     maxTokens: 65536,
   },
 ];
+// AMD Radeon Cloud / AMD AI Developer Program — OpenAI-compatible hosted models.
+// The catalog is authenticated and is refreshed from /v1/models when
+// AMD_API_KEY is available. Prices below are USD per 1M tokens, converted from
+// the provider's per-token pricing returned by the catalog.
+const AMD_MODELS = [
+  {
+    id: "DeepSeek-V4-Flash",
+    name: "DeepSeek V4 Flash (via AMD Radeon Cloud)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
+    contextWindow: 1048576,
+    maxTokens: 65536,
+  },
+  {
+    id: "DeepSeek-V4-Flash-Vision-Exp",
+    name: "DeepSeek V4 Flash Vision Exp (via AMD Radeon Cloud)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
+    contextWindow: 1048576,
+    maxTokens: 65536,
+  },
+  {
+    id: "MiniCPM5-1B",
+    name: "MiniCPM5 1B (via AMD Radeon Cloud)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0.124, output: 0.7425, cacheRead: 0.124, cacheWrite: 0 },
+    contextWindow: 131072,
+    maxTokens: 65536,
+  },
+  {
+    id: "MiniCPM5-2B",
+    name: "MiniCPM5 2B (via AMD Radeon Cloud)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0.124, output: 0.7425, cacheRead: 0.124, cacheWrite: 0 },
+    contextWindow: 131072,
+    maxTokens: 65536,
+  },
+  {
+    id: "Qwen3.8-Flash-Next",
+    name: "Qwen3.8 Flash Next (via AMD Radeon Cloud)",
+    api: "openai-completions",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0 },
+    contextWindow: 262144,
+    maxTokens: 65536,
+  },
+];
 const CLOUDFLARE_MODELS = [
   {
     id: "@cf/openai/gpt-oss-120b",
@@ -1732,6 +1796,7 @@ function curatedModels() {
     siliconflow: SILICONFLOW_MODELS,
     modelscope: MODELSCOPE_MODELS,
     nvidia: NVIDIA_MODELS,
+    amd: AMD_MODELS,
     cloudflare: CLOUDFLARE_MODELS,
     agnes: AGNES_MODELS,
   };
@@ -1747,6 +1812,7 @@ function initialModels() {
     siliconflow: cache.siliconflow ?? curated.siliconflow,
     modelscope: cache.modelscope ?? curated.modelscope,
     nvidia: cache.nvidia ?? curated.nvidia,
+    amd: cache.amd ?? curated.amd,
     cloudflare: curated.cloudflare,
     agnes: cache.agnes ?? curated.agnes,
   };
@@ -1856,6 +1922,14 @@ function registerAll(pi, m) {
     streamSimple: streamNvidia,
     models: m.nvidia,
   });
+  pi.registerProvider("amd", {
+    name: "AMD Radeon Cloud",
+    apiKey: "public",
+    baseUrl: AMD_URL,
+    api: "openai-completions",
+    streamSimple: streamAmd,
+    models: m.amd,
+  });
   pi.registerProvider("cloudflare", {
     name: "Cloudflare Workers AI (免费额度)",
     apiKey: "public",
@@ -1892,6 +1966,7 @@ const OPENCODE_PROVIDER_IDS = [
   "siliconflow",
   "modelscope",
   "nvidia",
+  "amd",
   "cloudflare",
   "agnes",
   "agnes-cn",
@@ -2073,12 +2148,13 @@ async function verifyAndUpdateModels(pi) {
     ...OPENCODE_STATIC_HEADERS,
     Authorization: `Bearer ${process.env.OPENCODE_API_KEY ?? "public"}`,
   };
-  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, agnesModels] = await Promise.all([
+  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, amdModels, agnesModels] = await Promise.all([
     fetchLiveModelIds("https://opencode.ai/zen/v1/models", zenHeaders),
     filterToLive(SENSENOVA_MODELS, "https://token.sensenova.cn/v1/models", authHeader("SENSENOVA_API_KEY")),
     filterToLive(SILICONFLOW_MODELS, "https://api.siliconflow.cn/v1/models", authHeader("SILICONFLOW_API_KEY")),
     filterToLive(MODELSCOPE_MODELS, "https://api-inference.modelscope.cn/v1/models", authHeader("MODELSCOPE_API_KEY")),
     filterToLive(NVIDIA_MODELS, "https://integrate.api.nvidia.com/v1/models", authHeader("NVIDIA_NIM_API_KEY")),
+    filterToLive(AMD_MODELS, `${AMD_URL}/models`, authHeader("AMD_API_KEY")),
     filterToLive(AGNES_MODELS, "https://apihub.agnes-ai.com/v1/models", authHeader("AGNES_API_KEY")),
   ]);
   const zenModels = zenLive ? await verifyZenModels(zenLive) : ZEN_FREE_MODELS;
@@ -2088,6 +2164,7 @@ async function verifyAndUpdateModels(pi) {
     siliconflow: siliconflowModels,
     modelscope: modelscopeModels,
     nvidia: nvidiaModels,
+    amd: amdModels,
     cloudflare: CLOUDFLARE_MODELS,
     agnes: agnesModels,
   };

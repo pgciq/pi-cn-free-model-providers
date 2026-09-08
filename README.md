@@ -1,6 +1,6 @@
 # pi-cn-free-model-providers
 
-让 [pi](https://github.com/Codeks/pi)（AI 编码助手 CLI）面向中国大陆免费用户，通过原生通道接入多个当前提供免费额度的模型供应商，包括 **OpenCode Zen、SenseNova、SiliconFlow、ModelScope、NVIDIA NIM、Cloudflare 和 Agnes AI**。各平台免费政策可能变化，模型会自动进行实时目录校验。
+让 [pi](https://github.com/Codeks/pi)（AI 编码助手 CLI）面向中国大陆用户，通过原生通道接入多个免费/低成本模型供应商，包括 **OpenCode Zen、SenseNova、SiliconFlow、ModelScope、NVIDIA NIM、AMD Radeon Cloud、Cloudflare 和 Agnes AI**。各平台政策可能变化，模型会自动进行实时目录校验。
 
 ## 问题背景
 
@@ -89,7 +89,7 @@ Workflow: .github/workflows/publish-npm.yml
 
 key 解析优先级（从高到低）：
 
-1. **环境变量**（推荐，不把 key 写进配置文件）：`OPENCODE_API_KEY`、`SENSENOVA_API_KEY`、`SILICONFLOW_API_KEY`、`MODELSCOPE_API_KEY`、`NVIDIA_NIM_API_KEY`、`CLOUDFLARE_API_KEY`（+ `CLOUDFLARE_ACCOUNT_ID`）、`AGNES_API_KEY`、`AGNES_CN_API_KEY`
+1. **环境变量**（推荐，不把 key 写进配置文件）：`OPENCODE_API_KEY`、`SENSENOVA_API_KEY`、`SILICONFLOW_API_KEY`、`MODELSCOPE_API_KEY`、`NVIDIA_NIM_API_KEY`、`AMD_API_KEY`、`CLOUDFLARE_API_KEY`（+ `CLOUDFLARE_ACCOUNT_ID`）、`AGNES_API_KEY`、`AGNES_CN_API_KEY`
 2. `~/.pi/agent/auth.json` 中对应 provider 条目（**非** `public` 的值）
 3. 兜底匿名 `public`（仅 Zen 免费模型可用，其余 provider 需真实 key）
 
@@ -146,7 +146,7 @@ TUI 内 **Ctrl+P** 循环切换模型。
 
 ## 额外供应商
 
-除 Zen 免费模型外，本扩展还注册了 **7 个第三方免费/低成本供应商**。所有 provider 的 key 解析优先级一致：环境变量 → auth.json 中非 `public` 的 key → 匿名占位（1.0.4 起 provider 自注册 `apiKey: "public"`，pi 视为已配置，装完即显示；`public` 本身会被忽略走兜底）。
+除 Zen 免费模型外，本扩展还注册了 **8 个第三方免费/低成本供应商**。所有 provider 的 key 解析优先级一致：环境变量 → auth.json 中非 `public` 的 key → 匿名占位（1.0.4 起 provider 自注册 `apiKey: "public"`，pi 视为已配置，装完即显示；`public` 本身会被忽略走兜底）。
 
 ### SenseNova（商汤日日新）
 
@@ -255,6 +255,41 @@ pi -p --provider nvidia --model nvidia/openai/gpt-oss-20b "你好"
 > 实测排除：`deepseek-v4-flash-0731`（读超时 ×2）、`stepfun-ai/step-3.7-flash`（HTTP 500）、`kimi-k2.6` / `mistralai/codestral-22b`（HTTP 404 免费账号无权限）、`openai/gpt-oss-120b`（本地 + CI 双网络连续超时，巡检确认后移除；Cloudflare 站有同名模型兑底）、`nvidia/llama-3.3-nemotron-super-49b-v1.5`（2026-08-31 从目录移除，探活 HTTP 410）、`deepseek-ai/deepseek-v4-pro-0813`（目录新增但无免费档证据，未收录）。工具调用兼容性未逐一验证。
 
 > 🔭 **变动监听**：`.github/workflows/nvidia-watch.yml` 每周巡检（04:11 UTC）：匿名目录比对捕获下线/改名 + 仓库密钥对在册模型发微型流式探活（捕获「在册但不可用/无权限」）+ 重点厂商新增条目扫描提示评估收录；基线与指纹存 `.github/watch-state/` 由 workflow 自动提交。需配置 secret `NVIDIA_NIM_API_KEY`。
+
+### AMD Radeon Cloud
+
+[AMD AI 开发者计划 Radeon Cloud](https://developer.amd.com.cn/radeon/tokenfactory) 提供 OpenAI 兼容的模型 API，端点为 `https://developer.amd.com.cn/radeon/api/v1`。API key 可在 AMD 开发者计划中获取；模型目录可在 Token Factory 页面查看，也会由扩展启动后的后台校验从 `GET /v1/models` 自动同步。当前目录返回的模型均支持流式输出和工具调用，AMD 返回的价格按美元/百万 token 记录在模型元数据中。
+
+#### 配置与使用
+
+```bash
+# 从 AMD Radeon Cloud / Token Factory 获取 API key
+export AMD_API_KEY=your-amd-api-key
+
+# 使用 Qwen3.8 Flash Next
+pi -p --provider amd --model amd/Qwen3.8-Flash-Next "你好"
+```
+
+PowerShell：
+
+```powershell
+$env:AMD_API_KEY = "your-amd-api-key"
+pi -p --provider amd --model amd/Qwen3.8-Flash-Next "你好"
+```
+
+#### 可用模型
+
+| 模型 ID | 说明 | 输入 | 上下文 | 价格（每 1M token） |
+|---|---|---|---:|---:|
+| `Qwen3.8-Flash-Next` | Qwen 轻量多模态推理模型 | 文本 + 图像 | 256K | $0.15 输入 / $0.47 输出 |
+| `DeepSeek-V4-Flash` | DeepSeek V4 推理模型 | 文本 | 1M | $0.14 输入 / $0.28 输出 |
+| `DeepSeek-V4-Flash-Vision-Exp` | DeepSeek V4 多模态实验模型 | 文本 + 图像 | 1M | $0.14 输入 / $0.28 输出 |
+| `MiniCPM5-1B` | 轻量推理模型 | 文本 | 128K | $0.124 输入 / $0.7425 输出 |
+| `MiniCPM5-2B` | 轻量推理模型 | 文本 | 128K | $0.124 输入 / $0.7425 输出 |
+
+> AMD 的 `/v1/models` 需要认证，扩展在 `AMD_API_KEY` 可用时按在线目录与上述白名单取交集；网络或认证失败时保留内置清单，不阻塞 Pi 启动。AMD 目录当前将这些模型标记为非免费（`free: false`），请以 Token Factory 页面和实时目录的价格为准。
+>
+> 🔭 **变动监听**：`.github/workflows/amd-watch.yml` 每周使用仓库 secret `AMD_API_KEY` 检查模型是否仍在目录、价格/上下文/能力指纹是否变化，并对每个在册模型发送一次微型流式探活；同时发现目录新增模型并自动更新 `.github/watch-state/` 基线。
 
 ### Agnes AI（国际站 + 中国站）
 
@@ -371,7 +406,7 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 
 ### 如何选择
 
-7 个额外供应商全部模型统一对比（基准数据截至 2026-08，来源：官方技术报告 + 独立评测）：
+8 个额外供应商全部模型统一对比（基准数据截至 2026-08，来源：官方技术报告 + 独立评测）：
 
 | 供应商 | 模型 | 规模 | 上下文 | 能力定位 | 实测 |
 |---|---|---|---|---|---|
@@ -385,6 +420,9 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 | NVIDIA | `nvidia/nemotron-3-nano-30b-a3b` | 30B MoE (3B 激活) | 128K | NVIDIA 自家思考型轻量模型（~80 tok/s） | ✅ |
 | NVIDIA | `moonshotai/kimi-k3` | — | 128K | Moonshot 旗舰，NIM 端生成偏慢 | ⚠️ 慢 |
 | NVIDIA | `openai/gpt-oss-120b` | 117B MoE (5.1B 激活) | 128K | 数学/工具调用强（AIME 95.8）；中文致命伤；本地+CI 双网络持续超时，已从扩展移除 | ❌ 已移除 |
+| AMD Radeon Cloud | `Qwen3.8-Flash-Next` | — | 256K | 多模态推理，工具调用；国内直连 | ✅ |
+| AMD Radeon Cloud | `DeepSeek-V4-Flash` | — | 1M | 超长上下文推理 | ✅ |
+| AMD Radeon Cloud | `DeepSeek-V4-Flash-Vision-Exp` | — | 1M | 多模态实验模型 | ✅ |
 | SenseNova | `glm-5.2` | — | 1M | 智谱旗舰长程任务：1M 上下文端到端开发管线 | ✅ |
 | SenseNova | `deepseek-v4-flash` | — | 1M | DeepSeek 高性能对话（thinking/非 thinking、工具调用） | ✅ |
 | SenseNova | `sensenova-6.8-flash-lite` | — | 256K | 新一代轻量多模态（文本+图像） | ✅ |

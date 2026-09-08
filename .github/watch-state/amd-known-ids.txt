@@ -1,0 +1,5 @@
+DeepSeek-V4-Flash
+DeepSeek-V4-Flash-Vision-Exp
+MiniCPM5-1B
+MiniCPM5-2B
+Qwen3.8-Flash-Next

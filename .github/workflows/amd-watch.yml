@@ -1,0 +1,183 @@
+name: amd-radeon-model-watch
+
+# AMD Radeon Cloud 的 /v1/models 需要 AMD_API_KEY，运行时扩展只在 Pi
+# 启动/后台刷新时做目录交集，无法覆盖「仍在目录但请求失效」和价格/参数原位变化。
+# 本巡检每周做四件事：目录存在性、价格/参数指纹、微型流式探活、目录新增发现。
+# 需要在仓库 Settings -> Secrets and variables -> Actions 配置 AMD_API_KEY。
+
+on:
+  schedule:
+    - cron: "23 5 * * 1" # 每周一 05:23 UTC
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract curated AMD model ids
+        run: |
+          awk '/^const AMD_MODELS/,/^\];/' pi-cn-free-model-providers-ext.mjs \
+            | grep -o 'id: "[^"]*"' | cut -d'"' -f2 > /tmp/curated.txt
+          echo "在册模型 $(wc -l < /tmp/curated.txt) 个:"
+          cat /tmp/curated.txt
+
+      - name: Fetch authenticated AMD catalog
+        env:
+          AMD_API_KEY: ${{ secrets.AMD_API_KEY }}
+        run: |
+          : > /tmp/anomalies.txt
+          : > /tmp/new_ids.txt
+          : > /tmp/unhealthy.txt
+          : > /tmp/state_changed.env
+          if [ -z "$AMD_API_KEY" ]; then
+            echo "::warning::未配置 AMD_API_KEY secret，本次跳过 AMD 巡检"
+            exit 0
+          fi
+          http=$(curl -o /tmp/models.json -sS --max-time 60 -w '%{http_code}' \
+            -H "Authorization: Bearer $AMD_API_KEY" \
+            -H "Accept: application/json" \
+            "https://developer.amd.com.cn/radeon/api/v1/models" || true)
+          echo "HTTP $http，$(wc -c < /tmp/models.json) bytes"
+          if [ "$http" != "200" ]; then
+            printf '_catalog\t/v1/models 拉取失败 HTTP %s：%s\n' "$http" "$(head -c 300 /tmp/models.json)" >> /tmp/anomalies.txt
+            exit 0
+          fi
+          if ! jq -e '.data | type == "array"' /tmp/models.json >/dev/null 2>&1; then
+            printf '_schema\t/v1/models 响应缺少 data 数组，请人工核验\n' >> /tmp/anomalies.txt
+            exit 0
+          fi
+          touch /tmp/key_ok
+
+      - name: Check catalog presence and pricing/parameter fingerprints
+        env:
+          AMD_API_KEY: ${{ secrets.AMD_API_KEY }}
+        run: |
+          [ -f /tmp/key_ok ] || exit 0
+          jq -r '.data[]?.id // empty' /tmp/models.json | sort -u > /tmp/live.txt
+          if [ ! -s /tmp/live.txt ]; then
+            printf '_schema\t/v1/models data 为空，请人工核验\n' >> /tmp/anomalies.txt
+            exit 0
+          fi
+          echo "AMD 官方目录 $(wc -l < /tmp/live.txt) 个模型"
+          : > /tmp/fp_new.txt
+          while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            if ! grep -qxF -- "$id" /tmp/live.txt; then
+              printf '%s\t从 AMD 官方目录消失（疑似下线或改名）\n' "$id" >> /tmp/anomalies.txt
+              continue
+            fi
+            raw=$(jq -c --arg id "$id" '.data[] | select(.id == $id)' /tmp/models.json | head -1)
+            fp=$(printf '%s' "$raw" | jq -c '{pricing,context_length,supported_parameters,architecture}' | sha256sum | cut -d' ' -f1)
+            printf '%s %s\n' "$id" "$fp" >> /tmp/fp_new.txt
+            old=$(awk -v id="$id" '$1 == id { print $2; exit }' .github/watch-state/amd-fingerprints.txt 2>/dev/null || true)
+            if [ -n "$old" ] && [ "$old" != "$fp" ]; then
+              printf '%s\t价格/上下文/能力参数指纹变化，请人工核验\n' "$id" >> /tmp/anomalies.txt
+            fi
+          done < /tmp/curated.txt
+          sort -u /tmp/fp_new.txt > /tmp/fp_new_sorted.txt
+          if ! diff -q /tmp/fp_new_sorted.txt .github/watch-state/amd-fingerprints.txt >/dev/null 2>&1; then
+            cp /tmp/fp_new_sorted.txt .github/watch-state/amd-fingerprints.txt
+            echo "changed=1" >> /tmp/state_changed.env
+          fi
+
+      - name: Discover newly listed AMD models
+        run: |
+          [ -f /tmp/key_ok ] || exit 0
+          [ -s /tmp/live.txt ] || exit 0
+          comm -13 .github/watch-state/amd-known-ids.txt /tmp/live.txt > /tmp/new_ids.txt || :
+          n=$(grep -c . /tmp/new_ids.txt || true)
+          echo "目录新增 ${n:-0} 个模型:"
+          cat /tmp/new_ids.txt
+          if [ "${n:-0}" != "0" ]; then
+            while IFS= read -r id; do
+              [ -z "$id" ] || printf '%s\t目录新增模型（请评估是否收录）\n' "$id" >> /tmp/anomalies.txt
+            done < /tmp/new_ids.txt
+            sort -u .github/watch-state/amd-known-ids.txt /tmp/live.txt > /tmp/amd-known-ids.new
+            mv /tmp/amd-known-ids.new .github/watch-state/amd-known-ids.txt
+            echo "changed=1" >> /tmp/state_changed.env
+          fi
+
+      - name: Probe curated models with tiny streaming requests
+        env:
+          AMD_API_KEY: ${{ secrets.AMD_API_KEY }}
+        run: |
+          [ -f /tmp/key_ok ] || exit 0
+          [ -s /tmp/live.txt ] || exit 0
+          while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            body=$(printf '{"model":"%s","messages":[{"role":"user","content":"Reply OK."}],"max_tokens":16,"stream":true}' "$id")
+            set +e
+            http=$(curl -o /tmp/amd-probe.out -sS --max-time 90 -w '%{http_code}' \
+              -H "Authorization: Bearer $AMD_API_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Accept: text/event-stream" \
+              -d "$body" \
+              "https://developer.amd.com.cn/radeon/api/v1/chat/completions")
+            rc=$?
+            set -e
+            if [ "$rc" -ne 0 ]; then
+              status="curl-error-$rc"
+            elif [ "$http" = "200" ]; then
+              if grep -q '"choices"' /tmp/amd-probe.out && ! grep -q '"error"' /tmp/amd-probe.out; then
+                status="OK"
+              else
+                status="EMPTY(200-无有效 choices)"
+              fi
+            else
+              status="HTTP-$http"
+            fi
+            echo "$id -> $status"
+            [ "$status" = "OK" ] || printf '%s\t%s\n' "$id" "$status" >> /tmp/unhealthy.txt
+          done < /tmp/curated.txt
+
+      - name: Commit refreshed AMD baselines
+        if: always()
+        run: |
+          if ! grep -q '^changed=1$' /tmp/state_changed.env 2>/dev/null; then
+            echo "AMD 基线无变化"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/watch-state/
+          git commit -m "chore(watch): refresh AMD model baselines (auto)" || exit 0
+          git push || echo "推送失败（分支保护？），基线已保留在运行日志中"
+
+      - name: Open issue when AMD models are abnormal
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(grep -c . /tmp/anomalies.txt 2>/dev/null || true)
+          bad=$(grep -c . /tmp/unhealthy.txt 2>/dev/null || true)
+          if [ "${n:-0}" = "0" ] && [ "${bad:-0}" = "0" ]; then
+            echo "AMD 模型全部正常，无需开 issue"
+            exit 0
+          fi
+          {
+            printf '周期巡检发现 AMD Radeon Cloud 模型异常（%s）。\n\n' "$(date +%F)"
+            if [ "${n:-0}" != "0" ]; then
+              printf '## 目录/参数异常\n\n| 模型 | 异常 |\n|---|---|\n'
+              while IFS="$(printf '\t')" read -r id msg; do
+                printf '| `%s` | %s |\n' "$id" "$msg"
+              done < /tmp/anomalies.txt
+              printf '\n'
+            fi
+            if [ "${bad:-0}" != "0" ]; then
+              printf '## 流式探活失败\n\n| 模型 | 状态 |\n|---|---|\n'
+              while IFS="$(printf '\t')" read -r id status; do
+                printf '| `%s` | %s |\n' "$id" "$status"
+              done < /tmp/unhealthy.txt
+              printf '\n'
+            fi
+            printf '参考：\n- 模型目录: `GET https://developer.amd.com.cn/radeon/api/v1/models`（需 AMD_API_KEY）\n- 探活端点: `POST https://developer.amd.com.cn/radeon/api/v1/chat/completions`\n- Token Factory: https://developer.amd.com.cn/radeon/tokenfactory\n- 更新位置: `AMD_MODELS`（pi-cn-free-model-providers-ext.mjs）、README AMD 小节、模型对比表\n'
+          } > /tmp/body.md
+          gh issue create \
+            --title "⚠️ AMD Radeon Cloud 模型巡检异常 ($(date +%F))" \
+            --body-file /tmp/body.md
