@@ -860,7 +860,10 @@ function streamOpenCode(model, context, options) {
       "x-opencode-session": SESSION_ID,
       "x-opencode-request": generateOpenCodeId("msg_"),
     }),
-    maxTokens: 128000,
+    // Auto-discovered Zen models carry their own output limit (derived from
+    // /v1/models); a fixed 128k here makes small models reject every request
+    // with 400 invalid max_tokens. Fall back to 128k only when unknown.
+    maxTokens: model.maxTokens ?? 128000,
   });
   return stream;
 }
@@ -991,7 +994,7 @@ async function run(stream, output, model, context, options, cfg) {
       messages,
       stream: true,
       stream_options: { include_usage: true },
-      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(tools && tools.length > 0 && model.capabilities?.tools !== false ? { tools } : {}),
       ...(options?.maxTokens ? { max_tokens: options.maxTokens } : { max_tokens: cfg.maxTokens }),
     };
     if (cfg.cleanBody) body = cfg.cleanBody(body);
@@ -1131,10 +1134,10 @@ const AGNES_MODELS = [
 // Models we vouch for: verified free tier + correct metadata (contextWindow,
 // maxTokens, reasoning, input, cost). At load each list is intersected with
 // the provider's live /v1/models so models that leave the free tier or get
-// renamed are auto-removed (drift detection). For Zen, every live model is
-// additionally probe-verified as free at load (see verifyZenModels): unknown
-// free models are auto-added with conservative metadata, and curated entries
-// that switched to paid are dropped despite being whitelisted.
+// renamed are auto-removed (drift detection). For Zen, the live catalog is
+// additionally classified at load (see verifyZenModels): unknown free models
+// are auto-added with parameters derived from the upstream listing, and
+// curated entries that switched to paid are dropped despite being whitelisted.
 const ZEN_FREE_MODELS = [
   {
     id: "mimo-v2.5-free",
@@ -1636,7 +1639,7 @@ async function fetchLiveModels(url, headers) {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const json = await res.json();
-    const data = Array.isArray(json) ? json : json?.data;
+    const data = Array.isArray(json) ? json : json?.data ?? json?.models;
     if (!Array.isArray(data)) return null;
     return data.filter((model) => model && (model.id ?? model.name));
   } catch {
@@ -1644,25 +1647,143 @@ async function fetchLiveModels(url, headers) {
   }
 }
 
-async function fetchLiveModelIds(url, headers) {
-  const models = await fetchLiveModels(url, headers);
-  return models ? new Set(models.map((model) => model.id ?? model.name).filter(Boolean)) : null;
-}
-
 function authHeader(envKey) {
   return { Authorization: `Bearer ${process.env[envKey] ?? "public"}` };
+}
+
+// ── Parameter derivation from a live /v1/models entry ──────────────────────
+// Gateways disagree on field names (OpenAI style, models.dev style, OpenRouter
+// style), so every getter accepts the common spellings and returns `undefined`
+// when the payload says nothing at all. `undefined` means "no information" —
+// never "zero" — so callers keep their curated value or a safe fallback.
+const MODALITY_NAMES = new Set(["text", "image", "audio", "video", "pdf"]);
+const ZEN_FALLBACK_CONTEXT = 131072;
+const ZEN_FALLBACK_MAX_TOKENS = 32768;
+
+function firstPositiveNumber(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return undefined;
+}
+
+function liveLimits(live) {
+  return live?.limit ?? live?.limits ?? {};
+}
+
+function liveContextWindow(live) {
+  const limit = liveLimits(live);
+  return firstPositiveNumber(
+    live?.context_window, live?.contextWindow, live?.context_length, live?.contextLength,
+    live?.max_context_tokens, live?.max_input_tokens,
+    limit.context, limit.context_window, limit.input,
+  );
+}
+
+function liveMaxTokens(live) {
+  const limit = liveLimits(live);
+  return firstPositiveNumber(
+    live?.max_output_tokens, live?.maxOutputTokens, live?.max_completion_tokens,
+    live?.max_tokens, live?.maxTokens,
+    limit.output, limit.max_output_tokens, limit.completion,
+  );
+}
+
+// Keep a derived output limit inside what the gateway will actually accept:
+// max_tokens must leave room for the prompt, so cap it at half the context
+// window (never below 1024). Curated, hand-verified limits are not clamped.
+function clampMaxTokens(maxTokens, contextWindow) {
+  const ceiling = Math.max(1024, Math.floor((contextWindow || ZEN_FALLBACK_CONTEXT) / 2));
+  return Math.max(1024, Math.min(maxTokens || ceiling, ceiling));
+}
+
+function liveInputModalities(live) {
+  const raw = live?.input_modalities ?? live?.inputModalities ?? live?.modalities?.input;
+  const list = (Array.isArray(raw) ? raw : [])
+    .map((m) => String(m).toLowerCase())
+    .filter((m) => MODALITY_NAMES.has(m));
+  if (list.length) return [...new Set(list.includes("text") ? list : ["text", ...list])];
+  if (live?.attachment === true || live?.multimodal === true || live?.vision === true) return ["text", "image"];
+  return undefined;
+}
+
+// true / false / undefined — `undefined` keeps the caller's default.
+function liveFlag(live, ...names) {
+  const featureList = [live?.supported_features, live?.features, live?.capabilities]
+    .flatMap((v) => (Array.isArray(v) ? v.map((x) => String(x).toLowerCase()) : []));
+  for (const name of names) {
+    if (featureList.includes(name.toLowerCase())) return true;
+    for (const holder of [live, live?.features, live?.capabilities]) {
+      const value = holder && typeof holder === "object" && !Array.isArray(holder) ? holder[name] : undefined;
+      if (value === true) return true;
+      if (value === false) return false;
+    }
+  }
+  return undefined;
+}
+
+function liveReasoning(live) {
+  return liveFlag(live, "reasoning", "supports_reasoning", "thinking", "reasoning_content");
+}
+
+function liveToolSupport(live) {
+  return liveFlag(live, "tools", "tool_call", "supports_tools", "function_calling", "tool_use");
+}
+
+function liveCost(live) {
+  const cost = live?.cost ?? live?.pricing ?? live?.price;
+  if (!cost || typeof cost !== "object") return undefined;
+  const num = (...keys) => {
+    for (const key of keys) {
+      const n = Number(cost[key]);
+      if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+  };
+  const input = num("input", "prompt", "input_tokens", "prompt_tokens");
+  const output = num("output", "completion", "output_tokens", "completion_tokens");
+  if (input === undefined && output === undefined) return undefined;
+  return {
+    input: input ?? 0,
+    output: output ?? 0,
+    cacheRead: num("cache_read", "cacheRead", "cached_input", "cache_reads") ?? 0,
+    cacheWrite: num("cache_write", "cacheWrite", "cache_writes") ?? 0,
+  };
+}
+
+function isFreeCost(cost) {
+  return !!cost && [cost.input, cost.output, cost.cacheRead, cost.cacheWrite].every((v) => Number(v) === 0);
 }
 
 function mergeLiveModel(curated, live) {
   // Keep curated routing/cost/limit metadata authoritative, while retaining
   // the complete upstream object for capability detection and diagnostics.
-  return {
+  // Anything the curated entry leaves unspecified is filled from the listing.
+  const merged = {
     ...live,
     ...curated,
     id: curated.id,
     name: curated.name ?? live.name ?? live.label ?? curated.id,
     opencodeLiveModel: live,
   };
+  if (curated.contextWindow === undefined) {
+    const context = liveContextWindow(live);
+    if (context) merged.contextWindow = context;
+  }
+  if (curated.maxTokens === undefined) {
+    const output = liveMaxTokens(live);
+    if (output) merged.maxTokens = clampMaxTokens(output, merged.contextWindow);
+  }
+  if (curated.input === undefined) {
+    const input = liveInputModalities(live);
+    if (input) merged.input = input;
+  }
+  if (curated.reasoning === undefined) {
+    const reasoning = liveReasoning(live);
+    if (reasoning !== undefined) merged.reasoning = reasoning;
+  }
+  return merged;
 }
 
 // Keep the curated allowlist for safety, but return each retained model with
@@ -1678,15 +1799,20 @@ async function filterToLive(curated, url, headers) {
 }
 
 // ── Zen free-model auto-discovery ──
-// /v1/models exposes no pricing and paid models keep "-free" ids, so freeness
-// is verified by probing: a tiny chat completion per unknown model. Free
-// models accept the anonymous "public" key (HTTP 200) while paid ones reject
-// it during auth (401/402/403) before any tokens are billed. When a real
-// OPENCODE_API_KEY is set, the response's `cost` field must be zero instead —
-// paid models then succeed but report non-zero cost.
+// /v1/models exposes no reliable pricing and paid models keep "-free" ids, so
+// freeness is established in two steps:
+//   1. listing metadata — a model the catalog itself prices at zero is free
+//      and needs no probe (this is the cheap path and covers most models);
+//   2. probing — a tiny 1-token chat completion. Free models accept the
+//      anonymous "public" key (HTTP 200) while paid ones are rejected during
+//      auth (401/402/403) before any tokens are billed. When a real
+//      OPENCODE_API_KEY is set, the response's `cost` field must be zero
+//      instead — paid models then succeed but report non-zero cost.
+// Probe verdicts are cached on disk for 7 days (longer than the 24h catalog
+// cache) so repeated cold starts never re-probe a model already classified.
 // Returns "free" (verified), "paid" (verified not free), or "unknown"
-// (network/shape errors — callers must keep the model rather than drop it,
-// so a transient outage never wipes the list).
+// (network/shape errors — callers must keep curated models rather than drop
+// them, so a transient outage never wipes the list).
 async function probeFreeStatus(modelId) {
   const apiKey = process.env.OPENCODE_API_KEY;
   let res;
@@ -1716,6 +1842,7 @@ async function probeFreeStatus(modelId) {
   if (apiKey) return Number(json?.cost ?? 0) === 0 ? "free" : "paid";
   return "free";
 }
+
 // Run async fn over items with bounded concurrency.
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
@@ -1729,35 +1856,107 @@ async function mapLimit(items, limit, fn) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
-function makeDiscoveredModel(id) {
+
+// Build a pi model entry for a model nobody hand-curated: every parameter is
+// derived from the upstream listing, with conservative fallbacks when the
+// listing is silent.
+function makeDiscoveredModel(id, live = {}) {
+  const contextWindow = liveContextWindow(live) ?? ZEN_FALLBACK_CONTEXT;
+  const maxTokens = clampMaxTokens(liveMaxTokens(live) ?? ZEN_FALLBACK_MAX_TOKENS, contextWindow);
+  const tools = liveToolSupport(live);
   return {
     id,
-    name: id,
+    name: live.name ?? live.display_name ?? live.label ?? id,
     api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
+    reasoning: liveReasoning(live) ?? true,
+    input: liveInputModalities(live) ?? ["text"],
+    ...(tools === false ? { tools: false } : {}),
+    cost: liveCost(live) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow,
+    maxTokens,
+    opencodeLiveModel: live,
+    opencodeDiscovered: true,
+    opencodeParamSource: {
+      contextWindow: liveContextWindow(live) ? "live" : "fallback",
+      maxTokens: liveMaxTokens(live) ? "live" : "fallback",
+      input: liveInputModalities(live) ? "live" : "fallback",
+      reasoning: liveReasoning(live) !== undefined ? "live" : "fallback",
+      tools: tools !== undefined ? "live" : "fallback",
+    },
   };
 }
-// Verify the whole live Zen list by probing every id (curated entries use
-// their hand-verified metadata, unknown ones get conservative defaults). This
-// catches models that switched from free to paid while staying listed — they
-// are dropped exactly like renamed/removed ones. If nothing verifies free
-// (e.g. probes all failed), fall back to the curated ∩ live intersection so a
-// gateway outage never empties the provider.
-async function verifyZenModels(liveIds) {
-  const known = new Map(ZEN_FREE_MODELS.map((m) => [m.id, m]));
-  const ids = [...liveIds];
-  const statuses = await mapLimit(ids, 8, probeFreeStatus);
-  const verified = [];
-  for (let i = 0; i < ids.length; i++) {
-    if (statuses[i] !== "free") continue;
-    verified.push(known.get(ids[i]) ?? makeDiscoveredModel(ids[i]));
+
+// ── Probe verdict cache (7 days, independent of the 24h catalog cache) ──
+const OPENCODE_PROBE_CACHE_FILE = join(homedir(), ".pi", "cache", "opencode-zen-probes.json");
+const OPENCODE_PROBE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+function loadProbeCache() {
+  const out = new Map();
+  try {
+    const data = JSON.parse(readFileSync(OPENCODE_PROBE_CACHE_FILE, "utf-8"));
+    const now = Date.now();
+    for (const [id, entry] of Object.entries(data ?? {})) {
+      if (!entry || typeof entry.ts !== "number") continue;
+      if (now - entry.ts > OPENCODE_PROBE_TTL) continue;
+      if (entry.status === "free" || entry.status === "paid") out.set(id, entry.status);
+    }
+  } catch {
+    // no cache yet / unreadable — probing simply starts from scratch
   }
-  if (verified.length) return verified;
-  const kept = ZEN_FREE_MODELS.filter((m) => liveIds.has(m.id));
+  return out;
+}
+
+function saveProbeCache(verdicts) {
+  try {
+    const dir = dirname(OPENCODE_PROBE_CACHE_FILE);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const ts = Date.now();
+    const data = {};
+    for (const [id, status] of verdicts) {
+      if (status === "free" || status === "paid") data[id] = { status, ts };
+    }
+    writeFileSync(OPENCODE_PROBE_CACHE_FILE, JSON.stringify(data));
+  } catch {
+    // best-effort; the cache is an optimization, never required
+  }
+}
+
+// Classify the whole live Zen catalog. Curated entries keep their hand-verified
+// parameters (merged with the live payload); unknown ones are auto-registered
+// with parameters derived from the listing. Models that switched from free to
+// paid while staying listed are dropped exactly like renamed/removed ones.
+// If nothing can be classified (e.g. every probe failed), fall back to the
+// curated ∩ live intersection so a gateway outage never empties the provider.
+async function verifyZenModels(liveModels, options = {}) {
+  const curated = new Map(ZEN_FREE_MODELS.map((m) => [m.id, m]));
+  const entries = (liveModels ?? [])
+    .map((live) => ({ id: live?.id ?? live?.name, live: live ?? {} }))
+    .filter((entry) => typeof entry.id === "string" && entry.id.length > 0);
+  const cachedVerdicts = options.force ? new Map() : loadProbeCache();
+  const verdicts = new Map();
+  const toProbe = [];
+  for (const entry of entries) {
+    const listedCost = liveCost(entry.live);
+    if (listedCost && isFreeCost(listedCost)) verdicts.set(entry.id, "free");
+    else if (cachedVerdicts.has(entry.id)) verdicts.set(entry.id, cachedVerdicts.get(entry.id));
+    else toProbe.push(entry);
+  }
+  const statuses = await mapLimit(toProbe, 8, (entry) => probeFreeStatus(entry.id));
+  toProbe.forEach((entry, index) => verdicts.set(entry.id, statuses[index]));
+  saveProbeCache(new Map([...cachedVerdicts, ...verdicts]));
+
+  const models = [];
+  for (const entry of entries) {
+    const status = verdicts.get(entry.id);
+    const isCurated = curated.has(entry.id);
+    // "unknown" means the probe itself failed (network/5xx), never a pricing
+    // signal: keep hand-verified curated models so an outage cannot wipe them,
+    // and skip unknown discovered ones so a paid model is never auto-added.
+    if (status !== "free" && !(status === "unknown" && isCurated)) continue;
+    models.push(isCurated ? mergeLiveModel(curated.get(entry.id), entry.live) : makeDiscoveredModel(entry.id, entry.live));
+  }
+  if (models.length) return models;
+  const kept = ZEN_FREE_MODELS.filter((model) => entries.some((entry) => entry.id === model.id));
   return kept.length ? kept : ZEN_FREE_MODELS;
 }
 
@@ -1825,8 +2024,8 @@ function initialModels() {
 function withCapabilities(model) {
   const live = model.opencodeLiveModel ?? {};
   const asArray = (value) => Array.isArray(value) ? value.map(String).map((item) => item.toLowerCase()) : [];
-  const inputModalities = asArray(live.input_modalities ?? live.inputModalities ?? model.input);
-  const outputModalities = asArray(live.output_modalities ?? live.outputModalities);
+  const inputModalities = asArray(live.input_modalities ?? live.inputModalities ?? live.modalities?.input ?? model.input);
+  const outputModalities = asArray(live.output_modalities ?? live.outputModalities ?? live.modalities?.output);
   const featureValues = [
     ...asArray(live.supported_features),
     ...asArray(live.features),
@@ -1844,7 +2043,7 @@ function withCapabilities(model) {
     type === "video" || live.supports_video === true || has("video");
   const audio = model.opencodeAudioModel === true || model.opencodeTranscriptionModel === true || inputModalities.includes("audio") || outputModalities.includes("audio") ||
     type === "audio" || live.supports_audio === true || has("audio", "speech", "transcription");
-  const tools = live.features?.tools === false || live.capabilities?.tools === false
+  const tools = live.features?.tools === false || live.capabilities?.tools === false || liveToolSupport(live) === false
     ? false
     : model.tools !== false;
   return {
@@ -1991,7 +2190,7 @@ function registerPricesCommand(pi) {
   pi.registerCommand("model-prices", {
     description: "List model catalog prices per 1M tokens; optional provider filter",
     handler: async (args, ctx) => {
-      const provider = (args || "").trim().split(/\\s+/).find((token) => OPENCODE_PROVIDER_IDS.includes(token));
+      const provider = (args || "").trim().split(/\s+/).find((token) => OPENCODE_PROVIDER_IDS.includes(token));
       const models = (ctx.modelRegistry?.getAvailable?.() ?? []).filter((model) =>
         OPENCODE_PROVIDER_IDS.includes(model.provider) && (!provider || model.provider === provider),
       );
@@ -2133,23 +2332,77 @@ function registerCapabilitiesCommand(pi) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// /zen-models, /zen-refresh — inspect and re-run Zen free-model discovery
+// ---------------------------------------------------------------------------
+
+function zenModelsMarkdown(ctx) {
+  const models = (ctx.modelRegistry?.getAvailable?.() ?? [])
+    .filter((model) => model.provider === "opencode-zen")
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const tokens = (count) => count >= 1000 ? `${Math.round(count / 1000)}K` : String(count);
+  const source = (model, field) =>
+    model.opencodeDiscovered ? (model.opencodeParamSource?.[field] === "live" ? "live" : "默认") : "curated";
+  return [
+    "# OpenCode Zen 免费模型（自动发现）",
+    "",
+    "| Model | 来源 | Context | max_tokens | 输入 | Reasoning | Tools | 参数来源 |",
+    "|---|---|---:|---:|---|:---:|:---:|---|",
+    ...models.map((model) => [
+      "",
+      model.id,
+      model.opencodeDiscovered ? "auto" : "curated",
+      tokens(model.contextWindow ?? 0),
+      tokens(model.maxTokens ?? 0),
+      (model.input ?? ["text"]).join("+"),
+      model.capabilities?.reasoning ? "✓" : "—",
+      model.capabilities?.tools === false ? "—" : "✓",
+      `ctx:${source(model, "contextWindow")} / out:${source(model, "maxTokens")}`,
+      "",
+    ].join(" | ").trim()),
+    "",
+    models.length
+      ? "_免费判定：优先读取 /v1/models 的计价字段，缺失时用 1-token 探测（401/402/403 判定为付费），结果缓存 7 天。`/zen-refresh` 可忽略缓存重新探测。_"
+      : "_当前没有注册任何 Zen 模型（网络不可用时会退回 curated 列表）。_",
+  ].join("\n");
+}
+
+function registerZenCommands(pi) {
+  pi.registerCommand("zen-models", {
+    description: "Show the auto-discovered OpenCode Zen free models and their derived parameters",
+    handler: async (_args, ctx) => {
+      showModelMarkdown(pi, ctx, "zen-models", zenModelsMarkdown(ctx));
+    },
+  });
+  pi.registerCommand("zen-refresh", {
+    description: "Re-run OpenCode Zen free-model discovery now, ignoring the 24h catalog and 7d probe caches",
+    handler: async (_args, ctx) => {
+      showModelMarkdown(pi, ctx, "zen-models", "_正在重新探测 OpenCode Zen 免费模型…_");
+      await verifyAndUpdateModels(pi, { force: true }).catch((error) => {
+        showModelMarkdown(pi, ctx, "zen-models", `刷新失败：${error instanceof Error ? error.message : String(error)}`);
+      });
+      showModelMarkdown(pi, ctx, "zen-models", zenModelsMarkdown(ctx));
+    },
+  });
+  pi.registerEntryRenderer("zen-models", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
+}
+
 // Background drift/probe pass. Best-effort: a failure leaves the already
 // registered (curated or cached) models untouched, so the user is never blocked.
-async function verifyAndUpdateModels(pi) {
+async function verifyAndUpdateModels(pi, options = {}) {
   // Honor the same 24h cache TTL that loadCache() enforces at boot. Without
   // this guard the background probe runs unconditionally on every startup and
   // clobbers a previously-good catalog whenever a flaky-window 1-token probe
-  // hits a transient 500 during free-tier concurrency storms.
-  if (loadCache()) return;
+  // hits a transient 500 during free-tier concurrency storms. /zen-refresh
+  // passes force:true to bypass it on demand.
+  if (!options.force && loadCache()) return;
 
-  // Overall safety net so a pathological network can never strand this task.
-  const signal = AbortSignal.timeout(45000);
   const zenHeaders = {
     ...OPENCODE_STATIC_HEADERS,
     Authorization: `Bearer ${process.env.OPENCODE_API_KEY ?? "public"}`,
   };
   const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, amdModels, agnesModels] = await Promise.all([
-    fetchLiveModelIds("https://opencode.ai/zen/v1/models", zenHeaders),
+    fetchLiveModels("https://opencode.ai/zen/v1/models", zenHeaders),
     filterToLive(SENSENOVA_MODELS, "https://token.sensenova.cn/v1/models", authHeader("SENSENOVA_API_KEY")),
     filterToLive(SILICONFLOW_MODELS, "https://api.siliconflow.cn/v1/models", authHeader("SILICONFLOW_API_KEY")),
     filterToLive(MODELSCOPE_MODELS, "https://api-inference.modelscope.cn/v1/models", authHeader("MODELSCOPE_API_KEY")),
@@ -2157,7 +2410,7 @@ async function verifyAndUpdateModels(pi) {
     filterToLive(AMD_MODELS, `${AMD_URL}/models`, authHeader("AMD_API_KEY")),
     filterToLive(AGNES_MODELS, "https://apihub.agnes-ai.com/v1/models", authHeader("AGNES_API_KEY")),
   ]);
-  const zenModels = zenLive ? await verifyZenModels(zenLive) : ZEN_FREE_MODELS;
+  const zenModels = zenLive ? await verifyZenModels(zenLive, options) : ZEN_FREE_MODELS;
   const verified = {
     zen: zenModels,
     sensenova: sensenovaModels,
@@ -2181,6 +2434,7 @@ export default function (pi) {
   registerAll(pi, initialModels());
   registerCapabilitiesCommand(pi);
   registerPricesCommand(pi);
+  registerZenCommands(pi);
   installUsageTracker(pi);
   registerUsageCommand(pi);
   setTimeout(() => {
