@@ -85,7 +85,26 @@ Workflow: .github/workflows/publish-npm.yml
 
 ### 1. API key
 
-> 从 **1.0.4** 起，每个 provider 都在注册时自声明 `apiKey: "public"`（匿名占位），pi 因此始终视其为已配置 key，**无需再手动编辑 `~/.pi/agent/auth.json`**，装完即可用。`public` 只是占位，实际请求按下面的优先级解析真实 key。
+### API Key 管理
+
+需要账号 Key 的 provider 支持 Pi 原生登录，Key 会保存到
+`~/.pi/agent/auth.json`：
+
+```text
+/login siliconflow
+/login sensenova
+/login modelscope
+/login nvidia
+/login amd
+/login cloudflare
+/login agnes
+/login agnes-cn
+/login opencode-zen
+```
+
+保存后的 Key 优先于同名环境变量；环境变量仍作为兼容 fallback。收到
+HTTP 401/403 时，错误信息会提示 Key 可能已过期或无效，并建议重新执行
+`/login <provider>`。
 
 key 解析优先级（从高到低）：
 

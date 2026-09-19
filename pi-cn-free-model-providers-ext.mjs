@@ -836,11 +836,11 @@ function makeOpenAIStream(baseUrl, envKey, opts = {}) {
     const maxTokens = typeof opts.maxTokens === "function" ? opts.maxTokens(model) : (opts.maxTokens ?? 128000);
     const cfg = {
       url: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-      key: () => process.env[envKey] ?? (options?.apiKey && options.apiKey !== "public" ? options.apiKey : undefined),
+      key: () => options?.apiKey ?? process.env[envKey] ?? (options?.apiKey && options.apiKey !== "public" ? options.apiKey : undefined),
       headers: () => ({}),
+      envKey,
       maxTokens,
     };
-    if (opts.cleanBody) cfg.cleanBody = opts.cleanBody;
     if (opts.enableThinking) cfg.enableThinking = true;
     run(stream, output, model, context, options, cfg);
     return stream;
@@ -853,7 +853,7 @@ function streamOpenCode(model, context, options) {
   const output = makeOutput(model);
   run(stream, output, model, context, options, {
     url: "https://opencode.ai/zen/v1/chat/completions",
-    key: () => process.env.OPENCODE_API_KEY
+    key: () => options?.apiKey ?? process.env.OPENCODE_API_KEY
       ?? (options?.apiKey && options.apiKey !== "public" ? options.apiKey : "public"),
     headers: () => ({
       ...OPENCODE_STATIC_HEADERS,
@@ -861,6 +861,7 @@ function streamOpenCode(model, context, options) {
       "x-opencode-request": generateOpenCodeId("msg_"),
     }),
     maxTokens: 128000,
+    envKey: "OPENCODE_API_KEY",
   });
   return stream;
 }
@@ -1017,7 +1018,10 @@ async function run(stream, output, model, context, options, cfg) {
     if (!response.ok) {
       const errText = await response.text();
       const hint = explainModelChurn(response.status, errText);
-      throw new Error(`${model.provider} API request failed: ${response.status} ${response.statusText}. ${errText.slice(0, 300)}${hint ? `\n${hint}` : ""}`);
+      const authHint = response.status === 401 || response.status === 403
+        ? `\nHint: ${cfg.envKey ?? "API"} may be expired or invalid — run /login ${model.provider} to update it.`
+        : "";
+      throw new Error(`${model.provider} API request failed: ${response.status} ${response.statusText}. ${errText.slice(0, 300)}${hint ? `\n${hint}` : ""}${authHint}`);
     }
     const reader = response.body.getReader();
     await consumeSSEStream(state, reader);
@@ -1760,6 +1764,33 @@ function withCapabilities(model) {
   };
 }
 
+function registerManagedProvider(pi, id, config, envKey, { anonymous = false } = {}) {
+  const provider = {
+    id,
+    name: config.name,
+    baseUrl: config.baseUrl,
+    auth: {
+      apiKey: {
+        name: `${config.name} API Key`,
+        async login(interaction) {
+          const key = await interaction.prompt({ type: "secret", message: `${config.name} API Key` });
+          if (!key.trim()) throw new Error(`${config.name} API Key cannot be empty`);
+          return { type: "api_key", key: key.trim() };
+        },
+        async resolve({ credential, ctx }) {
+          const envValue = await ctx.env(envKey);
+          const key = credential?.key ?? envValue ?? (anonymous ? "public" : undefined);
+          return key ? { auth: { apiKey: key }, source: credential?.key ? "stored API key" : envValue ? envKey : anonymous ? "anonymous" : undefined } : undefined;
+        },
+      },
+    },
+    getModels: () => config.models ?? [],
+    stream: config.streamSimple,
+    streamSimple: config.streamSimple,
+  };
+  pi.registerProvider(provider);
+}
+
 function registerAll(pi, m) {
   appendNativeImage = (image) => pi.appendEntry("opencode-generated-image", image);
   pi.registerEntryRenderer("opencode-generated-image", (entry, _options, theme) => {
@@ -1782,78 +1813,33 @@ function registerAll(pi, m) {
   for (const key of Object.keys(m)) {
     if (Array.isArray(m[key])) m[key] = m[key].map(withCapabilities);
   }
-  pi.registerProvider("opencode-zen", {
-    name: "OpenCode Zen (native headers)",
-    apiKey: "public",
-    baseUrl: "https://opencode.ai/zen/v1",
-    api: "openai-completions",
-    streamSimple: streamOpenCode,
-    models: m.zen,
-  });
-  pi.registerProvider("sensenova", {
-    name: "SenseNova (商汤日日新)",
-    apiKey: "public",
-    baseUrl: "https://token.sensenova.cn/v1",
-    api: "openai-completions",
-    streamSimple: streamSenseNova,
-    models: m.sensenova,
-  });
-  pi.registerProvider("siliconflow", {
-    name: "硅基流动 (SiliconFlow)",
-    apiKey: "public",
-    baseUrl: "https://api.siliconflow.cn/v1",
-    api: "openai-completions",
-    streamSimple: streamSiliconFlow,
-    models: m.siliconflow,
-  });
-  pi.registerProvider("modelscope", {
-    name: "魔塔社区 (ModelScope)",
-    apiKey: "public",
-    baseUrl: "https://api-inference.modelscope.cn/v1",
-    api: "openai-completions",
-    streamSimple: streamModelScope,
-    models: m.modelscope,
-  });
-  pi.registerProvider("nvidia", {
-    name: "NVIDIA NIM",
-    apiKey: "public",
-    baseUrl: "https://integrate.api.nvidia.com/v1",
-    api: "openai-completions",
-    streamSimple: streamNvidia,
-    models: m.nvidia,
-  });
-  pi.registerProvider("amd", {
-    name: "AMD Radeon Cloud",
-    apiKey: "public",
-    baseUrl: AMD_URL,
-    api: "openai-completions",
-    streamSimple: streamAmd,
-    models: m.amd,
-  });
-  pi.registerProvider("cloudflare", {
-    name: "Cloudflare Workers AI (免费额度)",
-    apiKey: "public",
-    baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
-    api: "openai-completions",
-    streamSimple: streamCloudflare,
-    models: m.cloudflare,
-  });
-  pi.registerProvider("agnes", {
-    name: "Agnes AI (国际站)",
-    apiKey: "public",
-    baseUrl: "https://apihub.agnes-ai.com/v1",
-    api: "openai-completions",
-    streamSimple: streamAgnes,
-    models: m.agnes,
-  });
-  pi.registerProvider("agnes-cn", {
-    name: "Agnes AI (中国站)",
-    apiKey: "public",
-    baseUrl: "https://api.agnes-ai.cn/v1",
-    api: "openai-completions",
-    streamSimple: streamAgnesCN,
-    models: m.agnes,
-  });
+  registerManagedProvider(pi, "opencode-zen", {
+    name: "OpenCode Zen (native headers)", baseUrl: "https://opencode.ai/zen/v1", streamSimple: streamOpenCode, models: m.zen,
+  }, "OPENCODE_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "sensenova", {
+    name: "SenseNova (商汤日日新)", baseUrl: "https://token.sensenova.cn/v1", streamSimple: streamSenseNova, models: m.sensenova,
+  }, "SENSENOVA_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "siliconflow", {
+    name: "硅基流动 (SiliconFlow)", baseUrl: "https://api.siliconflow.cn/v1", streamSimple: streamSiliconFlow, models: m.siliconflow,
+  }, "SILICONFLOW_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "modelscope", {
+    name: "魔塔社区 (ModelScope)", baseUrl: "https://api-inference.modelscope.cn/v1", streamSimple: streamModelScope, models: m.modelscope,
+  }, "MODELSCOPE_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "nvidia", {
+    name: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", streamSimple: streamNvidia, models: m.nvidia,
+  }, "NVIDIA_NIM_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "amd", {
+    name: "AMD Radeon Cloud", baseUrl: AMD_URL, streamSimple: streamAmd, models: m.amd,
+  }, "AMD_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "cloudflare", {
+    name: "Cloudflare Workers AI (免费额度)", baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1", streamSimple: streamCloudflare, models: m.cloudflare,
+  }, "CLOUDFLARE_API_KEY");
+  registerManagedProvider(pi, "agnes", {
+    name: "Agnes AI (国际站)", baseUrl: "https://apihub.agnes-ai.com/v1", streamSimple: streamAgnes, models: m.agnes,
+  }, "AGNES_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "agnes-cn", {
+    name: "Agnes AI (中国站)", baseUrl: "https://api.agnes-ai.cn/v1", streamSimple: streamAgnesCN, models: m.agnes,
+  }, "AGNES_CN_API_KEY", { anonymous: true });
 }
 
 // ---------------------------------------------------------------------------
