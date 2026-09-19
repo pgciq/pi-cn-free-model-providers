@@ -1764,31 +1764,20 @@ function withCapabilities(model) {
   };
 }
 
-function registerManagedProvider(pi, id, config, envKey, { anonymous = false } = {}) {
-  const provider = {
-    id,
+function registerManagedProvider(pi, id, config, _envKey, { anonymous = false } = {}) {
+  // `registerProvider` is the extension API `(providerId, config)`, not the
+  // native-provider API that accepts a single provider object. Passing the
+  // object as the first argument makes Pi treat it as the provider id and
+  // leaves the model config undefined; the model selector then crashes while
+  // sorting the resulting malformed entries.
+  pi.registerProvider(id, {
     name: config.name,
     baseUrl: config.baseUrl,
-    auth: {
-      apiKey: {
-        name: `${config.name} API Key`,
-        async login(interaction) {
-          const key = await interaction.prompt({ type: "secret", message: `${config.name} API Key` });
-          if (!key.trim()) throw new Error(`${config.name} API Key cannot be empty`);
-          return { type: "api_key", key: key.trim() };
-        },
-        async resolve({ credential, ctx }) {
-          const envValue = await ctx.env(envKey);
-          const key = credential?.key ?? envValue ?? (anonymous ? "public" : undefined);
-          return key ? { auth: { apiKey: key }, source: credential?.key ? "stored API key" : envValue ? envKey : anonymous ? "anonymous" : undefined } : undefined;
-        },
-      },
-    },
-    getModels: () => config.models ?? [],
-    stream: config.streamSimple,
+    apiKey: anonymous ? "public" : undefined,
+    api: "openai-completions",
     streamSimple: config.streamSimple,
-  };
-  pi.registerProvider(provider);
+    models: config.models ?? [],
+  });
 }
 
 function registerAll(pi, m) {

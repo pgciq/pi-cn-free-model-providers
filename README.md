@@ -52,7 +52,7 @@ pi install https://github.com/pgciq/pi-cn-free-model-providers
 
 npm 包已发布：<https://www.npmjs.com/package/pi-cn-free-model-providers>
 
-当前版本：`1.0.17`。安装命令：
+当前版本：`1.0.26`。安装命令：
 
 ```bash
 pi install npm:pi-cn-free-model-providers
