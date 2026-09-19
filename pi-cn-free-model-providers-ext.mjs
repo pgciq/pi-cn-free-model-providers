@@ -1038,18 +1038,8 @@ async function run(stream, output, model, context, options, cfg) {
 // Chat and verified image-generation models. Image models use the native
 // /v1/images/generations endpoint rather than chat completions. Limits from:
 // https://wiki.agnes-ai.com/en/docs/agnes-25-flash.md (and agnes-20-flash.md)
-// agnes-2.0-flash 已于 2026-08 官方标记 Deprecated（迁移至 agnes-2.5-flash）并移除。
+// agnes-2.0-flash 已于 2026-08 官方标记 Deprecated；Flash 系当前不在免费配额文档中，故不注册。
 const AGNES_MODELS = [
-  {
-    id: "agnes-2.5-flash",
-    name: "Agnes 2.5 Flash",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 512000,
-    maxTokens: 65536,
-  },
   {
     id: "agnes-2.5-pro",
     name: "Agnes 2.5 Pro",
@@ -1104,17 +1094,6 @@ const AGNES_MODELS = [
     maxTokens: 4096,
   },
   {
-    id: "agnes-image-2.5-flash",
-    name: "Agnes Image 2.5 Flash",
-    api: "openai-completions",
-    input: ["text"],
-    opencodeImageModel: true,
-    opencodeImageProvider: "agnes",
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 4096,
-  },
-  {
     id: "agnes-video-2.5-flash",
     name: "Agnes Video 2.5 Flash",
     api: "openai-completions",
@@ -1135,48 +1114,10 @@ const AGNES_MODELS = [
 // additionally probe-verified as free at load (see verifyZenModels): unknown
 // free models are auto-added with conservative metadata, and curated entries
 // that switched to paid are dropped despite being whitelisted.
-const ZEN_FREE_MODELS = [
-  {
-    id: "mimo-v2.5-free",
-    name: "MiMo-V2.5 Free",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
-    maxTokens: 128000,
-  },
-  {
-    id: "nemotron-3-ultra-free",
-    name: "Nemotron 3 Ultra Free",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1000000,
-    maxTokens: 128000,
-  },
-  {
-    id: "nemotron-3.5-lightning-free",
-    name: "Nemotron 3.5 Lightning Free",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1000000,
-    maxTokens: 128000,
-  },
-  {
-    id: "big-pickle",
-    name: "Big Pickle",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
-    maxTokens: 128000,
-  },
-];
+// No anonymous Zen model is currently verified as usable outside OpenCode.
+// Keep this empty rather than registering models that return FreeTierError/403;
+// verifyZenModels() will discover a newly available free model at runtime.
+const ZEN_FREE_MODELS = [];
 const SENSENOVA_MODELS = [
   {
     id: "sensenova-6.7-flash-lite",
@@ -1409,17 +1350,6 @@ const NVIDIA_MODELS = [
     contextWindow: 131072,
     maxTokens: 65536,
   },
-  // TTFB 0.8s, ~70 tok/s.
-  {
-    id: "minimaxai/minimax-m3",
-    name: "MiniMax M3 (via NVIDIA NIM)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
   // Works but slow generation (~5-18 tok/s).
   {
     id: "moonshotai/kimi-k3",
@@ -1448,26 +1378,6 @@ const AMD_MODELS = [
     maxTokens: 65536,
   },
   {
-    id: "DeepSeek-V4-Flash-Vision-Exp",
-    name: "DeepSeek V4 Flash Vision Exp (via AMD Radeon Cloud)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
-    contextWindow: 1048576,
-    maxTokens: 65536,
-  },
-  {
-    id: "MiniCPM5-1B",
-    name: "MiniCPM5 1B (via AMD Radeon Cloud)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0.124, output: 0.7425, cacheRead: 0.124, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
-  {
     id: "MiniCPM5-2B",
     name: "MiniCPM5 2B (via AMD Radeon Cloud)",
     api: "openai-completions",
@@ -1475,16 +1385,6 @@ const AMD_MODELS = [
     input: ["text"],
     cost: { input: 0.124, output: 0.7425, cacheRead: 0.124, cacheWrite: 0 },
     contextWindow: 131072,
-    maxTokens: 65536,
-  },
-  {
-    id: "Qwen3.8-Flash-Next",
-    name: "Qwen3.8 Flash Next (via AMD Radeon Cloud)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0 },
-    contextWindow: 262144,
     maxTokens: 65536,
   },
 ];
