@@ -30,6 +30,7 @@ jobs:
           set -euo pipefail
           test "$(node -p "require('./package.json').name")" = "pi-cn-free-model-providers"
           node --check pi-cn-free-model-providers-ext.mjs
+          npm test
           npm pack --dry-run
 
       - name: Enable npm Trusted Publisher support
