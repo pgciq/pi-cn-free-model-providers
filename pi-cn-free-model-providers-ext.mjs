@@ -1366,32 +1366,10 @@ const NVIDIA_MODELS = [
     maxTokens: 65536,
   },
 ];
-// AMD Radeon Cloud / AMD AI Developer Program — OpenAI-compatible hosted models.
-// The catalog is authenticated and is refreshed from /v1/models when
-// AMD_API_KEY is available. Prices below are USD per 1M tokens, converted from
-// the provider's per-token pricing returned by the catalog.
-const AMD_MODELS = [
-  {
-    id: "DeepSeek-V4-Flash",
-    name: "DeepSeek V4 Flash (via AMD Radeon Cloud)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
-    contextWindow: 1048576,
-    maxTokens: 65536,
-  },
-  {
-    id: "MiniCPM5-2B",
-    name: "MiniCPM5 2B (via AMD Radeon Cloud)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0.124, output: 0.7425, cacheRead: 0.124, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
-];
+// AMD Radeon Cloud is paid-only and intentionally not registered. Keep an empty
+// placeholder so repository contract tooling continues to account for the
+// provider family without exposing billable models in the selector.
+const AMD_MODELS = [];
 const CLOUDFLARE_MODELS = [
   {
     id: "@cf/openai/gpt-oss-120b",
@@ -1817,9 +1795,6 @@ function registerAll(pi, m) {
   registerManagedProvider(pi, "nvidia", {
     name: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", streamSimple: streamNvidia, models: m.nvidia,
   }, "NVIDIA_NIM_API_KEY", { anonymous: true });
-  registerManagedProvider(pi, "amd", {
-    name: "AMD Radeon Cloud", baseUrl: AMD_URL, streamSimple: streamAmd, models: m.amd,
-  }, "AMD_API_KEY", { anonymous: true });
   registerManagedProvider(pi, "cloudflare", {
     name: "Cloudflare Workers AI (免费额度)", baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1", streamSimple: streamCloudflare, models: m.cloudflare,
   }, "CLOUDFLARE_API_KEY");
@@ -2023,13 +1998,12 @@ async function verifyAndUpdateModels(pi) {
     ...OPENCODE_STATIC_HEADERS,
     Authorization: `Bearer ${process.env.OPENCODE_API_KEY ?? "public"}`,
   };
-  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, amdModels, agnesModels] = await Promise.all([
+  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, agnesModels] = await Promise.all([
     fetchLiveModelIds("https://opencode.ai/zen/v1/models", zenHeaders),
     filterToLive(SENSENOVA_MODELS, "https://token.sensenova.cn/v1/models", authHeader("SENSENOVA_API_KEY")),
     filterToLive(SILICONFLOW_MODELS, "https://api.siliconflow.cn/v1/models", authHeader("SILICONFLOW_API_KEY")),
     filterToLive(MODELSCOPE_MODELS, "https://api-inference.modelscope.cn/v1/models", authHeader("MODELSCOPE_API_KEY")),
     filterToLive(NVIDIA_MODELS, "https://integrate.api.nvidia.com/v1/models", authHeader("NVIDIA_NIM_API_KEY")),
-    filterToLive(AMD_MODELS, `${AMD_URL}/models`, authHeader("AMD_API_KEY")),
     filterToLive(AGNES_MODELS, "https://apihub.agnes-ai.com/v1/models", authHeader("AGNES_API_KEY")),
   ]);
   const zenModels = zenLive ? await verifyZenModels(zenLive) : ZEN_FREE_MODELS;
@@ -2039,7 +2013,6 @@ async function verifyAndUpdateModels(pi) {
     siliconflow: siliconflowModels,
     modelscope: modelscopeModels,
     nvidia: nvidiaModels,
-    amd: amdModels,
     cloudflare: CLOUDFLARE_MODELS,
     agnes: agnesModels,
   };

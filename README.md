@@ -161,7 +161,7 @@ TUI 内 **Ctrl+P** 循环切换模型。
 
 ## 额外供应商
 
-除 Zen 免费模型外，本扩展还注册了 **8 个第三方免费/低成本供应商**。所有 provider 的 key 解析优先级一致：环境变量 → auth.json 中非 `public` 的 key → 匿名占位（1.0.4 起 provider 自注册 `apiKey: "public"`，pi 视为已配置，装完即显示；`public` 本身会被忽略走兜底）。
+除 Zen 免费模型外，本扩展还注册了 **7 个第三方免费/低成本供应商**。AMD Radeon Cloud 当前仅提供付费模型，按本项目“只收录免费模型”的定位暂不注册。所有 provider 的 key 解析优先级一致：环境变量 → auth.json 中非 `public` 的 key → 匿名占位（1.0.4 起 provider 自注册 `apiKey: "public"`，pi 视为已配置，装完即显示；`public` 本身会被忽略走兜底）。
 
 ### SenseNova（商汤日日新）
 
@@ -185,7 +185,7 @@ export SENSENOVA_API_KEY=sk-xxx
 | `deepseek-v4-flash` | DeepSeek 高性能对话（thinking/非 thinking、工具调用） | 1M | 150 次 / 5h |
 | `glm-5.2` | 智谱旗舰长程任务模型（1M 上下文，可完成端到端开发管线） | 1M | 免费套餐可用 |
 | `sensenova-u1-fast` | 图像生成专用模型 | 256K | `/v1/images/generations` |
-| `sensenova-u1.5-lite` | 图像生成/编辑模型 | 256K | `/v1/images/generations`、`/v1/images/edits` |
+| `sensenova-u1.5-lite` | 图像生成/编辑模型（文本输入、图像输出） | 256K | `/v1/images/generations`、`/v1/images/edits` |
 
 `sensenova-u1-fast` 和 `sensenova-u1.5-lite` 已注册为图像模型，不会误走 chat completions；生成结果保存到 `.pi/generated-images/`，支持终端通过 TUI Image 回显，保存路径在 TUI 中渲染为可点击的 `file://` 链接（OSC 8 超链接，Windows Terminal / WezTerm / iTerm2 / Kitty 可一键打开）。
 
@@ -269,37 +269,9 @@ pi -p --provider nvidia --model nvidia/openai/gpt-oss-20b "你好"
 
 > 🔭 **变动监听**：`.github/workflows/nvidia-watch.yml` 每周巡检（04:11 UTC）：匿名目录比对捕获下线/改名 + 仓库密钥对在册模型发微型流式探活（捕获「在册但不可用/无权限」）+ 重点厂商新增条目扫描提示评估收录；基线与指纹存 `.github/watch-state/` 由 workflow 自动提交。需配置 secret `NVIDIA_NIM_API_KEY`。
 
-### AMD Radeon Cloud
+### AMD Radeon Cloud（暂不收录）
 
-[AMD AI 开发者计划 Radeon Cloud](https://developer.amd.com.cn/radeon/tokenfactory) 提供 OpenAI 兼容的模型 API，端点为 `https://developer.amd.com.cn/radeon/api/v1`。API key 可在 AMD 开发者计划中获取；模型目录可在 Token Factory 页面查看，也会由扩展启动后的后台校验从 `GET /v1/models` 自动同步。当前目录返回的模型均支持流式输出和工具调用，AMD 返回的价格按美元/百万 token 记录在模型元数据中。
-
-#### 配置与使用
-
-```bash
-# 从 AMD Radeon Cloud / Token Factory 获取 API key
-export AMD_API_KEY=your-amd-api-key
-
-# 使用 MiniCPM5-2B
-pi -p --provider amd --model amd/MiniCPM5-2B "你好"
-```
-
-PowerShell：
-
-```powershell
-$env:AMD_API_KEY = "your-amd-api-key"
-pi -p --provider amd --model amd/MiniCPM5-2B "你好"
-```
-
-#### 可用模型
-
-| 模型 ID | 说明 | 输入 | 上下文 | 价格（每 1M token） |
-|---|---|---|---:|---:|
-| `DeepSeek-V4-Flash` | DeepSeek V4 推理模型 | 文本 | 1M | $0.14 输入 / $0.28 输出 |
-| `MiniCPM5-2B` | 轻量推理模型 | 文本 | 128K | $0.124 输入 / $0.7425 输出 |
-
-> `MinerU2.5-Pro` 虽已出现在 AMD 目录，但当前标记为 OCR、非流式且 `free: false`，不是本扩展的聊天模型，暂不收录。
->
-> AMD 的 `/v1/models` 需要认证，扩展在 `AMD_API_KEY` 可用时按在线目录与上述白名单取交集；网络或认证失败时保留内置清单，不阻塞 Pi 启动。AMD 目录当前将这些模型标记为非免费（`free: false`），请以 Token Factory 页面和实时目录的价格为准。
+AMD Radeon Cloud 当前目录中的模型均为付费模型。本扩展定位为免费模型集合，因此不注册 AMD provider 或任何 AMD 模型。此前巡检发现的 AMD 模型仅保留在 Issue/历史记录中，不会出现在 Pi 模型选择器内。
 >
 > 🔭 **变动监听**：`.github/workflows/amd-watch.yml` 每周使用仓库 secret `AMD_API_KEY` 检查模型是否仍在目录、价格/上下文/能力指纹是否变化，并对每个在册模型发送一次微型流式探活；同时发现目录新增模型并自动更新 `.github/watch-state/` 基线。
 
@@ -428,7 +400,7 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 | NVIDIA | `openai/gpt-oss-20b` | 20B MoE (3.6B 激活) | 128K | ⭐ 免费档实测最快（TTFB 0.8s / ~130 tok/s）；GPT-OSS 家族数学/工具调用强，中文偏弱 | ✅ |
 | NVIDIA | `moonshotai/kimi-k3` | — | 128K | Moonshot 旗舰，NIM 端生成偏慢 | ⚠️ 慢 |
 | NVIDIA | `openai/gpt-oss-120b` | 117B MoE (5.1B 激活) | 128K | 数学/工具调用强（AIME 95.8）；中文致命伤；本地+CI 双网络持续超时，已从扩展移除 | ❌ 已移除 |
-| AMD Radeon Cloud | `DeepSeek-V4-Flash` | — | 1M | 超长上下文推理 | ✅ |
+
 | SenseNova | `glm-5.2` | — | 1M | 智谱旗舰长程任务：1M 上下文端到端开发管线 | ✅ |
 | SenseNova | `deepseek-v4-flash` | — | 1M | DeepSeek 高性能对话（thinking/非 thinking、工具调用） | ✅ |
 | SenseNova | `sensenova-6.8-flash-lite` | — | 256K | 新一代轻量多模态（文本+图像） | ✅ |
@@ -447,6 +419,7 @@ pi -p --provider cloudflare --model cloudflare/@cf/openai/gpt-oss-120b "你好"
 |---|---|
 | 日常编码 / agent 开发（默认主力） | 魔塔 `Qwen3-Coder-30B-A3B-Instruct`（免费中最强编码）；轻量快速用硅基 `Qwen3-8B`（免费） |
 | 长上下文 / 长程开发管线 | **Agnes `agnes-2.5-pro`**（1M，付费）或 SenseNova `glm-5.2`（免费套餐可用） |
+
 | 超长上下文 / 长程开发管线 | SenseNova `glm-5.2`（开箱即用）、魔塔 `DeepSeek-V4-Pro`（需开通额度）或 **Agnes `agnes-2.5-pro`**（1M，付费） |
 | 付费强推理（编码/科学/终端） | **Agnes `agnes-2.5-pro`**（1M 上下文，AA 智能榜 #9） |
 | 中文任务 | 硅基 `Qwen/Qwen3-8B`（免费）或魔塔 `DeepSeek-V4-Pro`（需开通，**勿用 GPT-OSS-120B**） |
