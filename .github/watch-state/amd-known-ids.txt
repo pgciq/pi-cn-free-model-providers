@@ -1,6 +1,9 @@
 DeepSeek-V4-Flash
 DeepSeek-V4-Flash-Vision-Exp
+DeepSeek-V4.1-Flash
+GLM-5.3-Flash
 MinerU2.5-Pro
 MiniCPM5-1B
 MiniCPM5-2B
+Qwen3.8-27B
 Qwen3.8-Flash-Next
