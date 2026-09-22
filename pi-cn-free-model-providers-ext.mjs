@@ -90,8 +90,9 @@ function generateOpenCodeId(prefix) {
 }
 const SESSION_ID = generateOpenCodeId("ses_");
 const OPENCODE_STATIC_HEADERS = {
-  "User-Agent": "opencode/1.15.5",
+  "User-Agent": "opencode/prod/1.18.32/cli",
   "x-opencode-client": "cli",
+  "x-opencode-project": "global",
 };
 
 // ── Message / tool normalization ──
@@ -855,11 +856,14 @@ function streamOpenCode(model, context, options) {
   const stream = new AssistantMessageEventStream();
   const output = makeOutput(model);
   run(stream, output, model, context, options, {
-    url: "https://opencode.ai/zen/v1/chat/completions",
-    key: () => options?.apiKey ?? process.env.OPENCODE_API_KEY
+    url: "https://opencode.ai/inference/openai/v1/chat/completions",
+    key: () => process.env.OPENCODE_API_KEY
+      ?? options?.apiKey
       ?? (options?.apiKey && options.apiKey !== "public" ? options.apiKey : "public"),
     headers: () => ({
       ...OPENCODE_STATIC_HEADERS,
+      ...(process.env.OPENCODE_ORG_ID ? { "x-opencode-org-id": process.env.OPENCODE_ORG_ID } : {}),
+      ...(process.env.OPENCODE_ORG_ID ? { "x-org-id": process.env.OPENCODE_ORG_ID } : {}),
       "x-opencode-session": SESSION_ID,
       "x-opencode-request": generateOpenCodeId("msg_"),
     }),
@@ -1127,7 +1131,15 @@ const AGNES_MODELS = [
 // No anonymous Zen model is currently verified as usable outside OpenCode.
 // Keep this empty rather than registering models that return FreeTierError/403;
 // verifyZenModels() will discover a newly available free model at runtime.
-const ZEN_FREE_MODELS = [];
+const ZEN_FREE_MODELS = [
+  { id: "big-pickle", name: "Big Pickle (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "ling-3.0-flash-fin-free", name: "Ling 3.0 Flash Fin Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "mimo-v2.6-flash-free", name: "MiMo v2.6 Flash Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "muse-spark-1.2-contributor-free", name: "Muse Spark 1.2 Contributor Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "muse-spark-1.3-contributor-free", name: "Muse Spark 1.3 Contributor Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "nemotron-3-ultra-free", name: "Nemotron 3 Ultra Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+];
 const SENSENOVA_MODELS = [
   {
     id: "sensenova-6.7-flash-lite",
@@ -1581,15 +1593,15 @@ async function filterToLive(curated, url, headers) {
 // Returns "free" (verified), "paid" (verified not free), or "unknown"
 // (network/shape errors — callers must keep the model rather than drop it,
 // so a transient outage never wipes the list).
-async function probeFreeStatus(modelId) {
-  const apiKey = process.env.OPENCODE_API_KEY;
+async function probeFreeStatus(modelId, apiKey = process.env.OPENCODE_API_KEY) {
   let res;
   try {
-    res = await fetch("https://opencode.ai/zen/v1/chat/completions", {
+    res = await fetch("https://opencode.ai/inference/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...OPENCODE_STATIC_HEADERS,
+        ...(process.env.OPENCODE_ORG_ID ? { "x-opencode-org-id": process.env.OPENCODE_ORG_ID, "x-org-id": process.env.OPENCODE_ORG_ID } : {}),
         "x-opencode-session": SESSION_ID,
         "x-opencode-request": generateOpenCodeId("msg_"),
         Authorization: `Bearer ${apiKey ?? "public"}`,
@@ -1641,18 +1653,13 @@ function makeDiscoveredModel(id) {
 // are dropped exactly like renamed/removed ones. If nothing verifies free
 // (e.g. probes all failed), fall back to the curated ∩ live intersection so a
 // gateway outage never empties the provider.
-async function verifyZenModels(liveIds) {
+async function verifyZenModels(liveIds, apiKey = process.env.OPENCODE_API_KEY) {
   const known = new Map(ZEN_FREE_MODELS.map((m) => [m.id, m]));
-  const ids = [...liveIds];
-  const statuses = await mapLimit(ids, 8, probeFreeStatus);
-  const verified = [];
-  for (let i = 0; i < ids.length; i++) {
-    if (statuses[i] !== "free") continue;
-    verified.push(known.get(ids[i]) ?? makeDiscoveredModel(ids[i]));
-  }
-  if (verified.length) return verified;
-  const kept = ZEN_FREE_MODELS.filter((m) => liveIds.has(m.id));
-  return kept.length ? kept : ZEN_FREE_MODELS;
+  // Console /api/config is the pricing authority. The public /v1/models and
+  // chat probe can reject non-OpenCode clients with 403 even when the model is
+  // free, so do not use probe results to remove zero-priced curated models.
+  const live = ZEN_FREE_MODELS.filter((model) => liveIds.has(model.id));
+  return live.length ? live : ZEN_FREE_MODELS;
 }
 
 // ── Extension entry ──
@@ -1701,7 +1708,7 @@ function initialModels() {
   if (!cache) return curatedModels();
   const curated = curatedModels();
   return {
-    zen: cache.zen ?? curated.zen,
+    zen: curated.zen,
     sensenova: cache.sensenova ?? curated.sensenova,
     siliconflow: cache.siliconflow ?? curated.siliconflow,
     modelscope: cache.modelscope ?? curated.modelscope,
@@ -1754,7 +1761,108 @@ function withCapabilities(model) {
   };
 }
 
-function registerManagedProvider(pi, id, config, _envKey, { anonymous = false } = {}) {
+async function fetchOpenCodeZenCatalog(apiKey, orgId) {
+  const response = await fetch("https://opencode.ai/console/api/config", {
+    headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}`, ...(orgId ? { "x-org-id": orgId } : {}) },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => ({}));
+  const models = payload?.config?.provider?.opencode?.models;
+  if (!models || typeof models !== "object") return null;
+  return Object.entries(models).filter(([, model]) => {
+    const cost = model?.cost;
+    return cost && Number(cost.input ?? 0) === 0 && Number(cost.output ?? 0) === 0;
+  }).map(([id, model]) => ({
+    id,
+    name: model.name ?? id,
+    api: "openai-completions",
+    reasoning: model.reasoning !== false,
+    input: model.modalities?.input ?? ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: model.limit?.context ?? model.contextWindow ?? 131072,
+    maxTokens: model.limit?.output ?? model.maxTokens ?? 65536,
+  }));
+}
+
+async function refreshOpenCodeZenModels(context = {}) {
+  const apiKey = context.credential?.access ?? context.credential?.key ?? process.env.OPENCODE_API_KEY;
+  if (context.credential?.metadata?.orgId) process.env.OPENCODE_ORG_ID = context.credential.metadata.orgId;
+  if (!apiKey) return ZEN_FREE_MODELS;
+  const catalog = await fetchOpenCodeZenCatalog(apiKey, context.credential?.metadata?.orgId || process.env.OPENCODE_ORG_ID);
+  if (catalog?.length) return catalog.filter((model) => ZEN_FREE_MODELS.some((curated) => curated.id === model.id));
+  const headers = { ...OPENCODE_STATIC_HEADERS, Authorization: `Bearer ${apiKey}` };
+  const live = await fetchLiveModels("https://opencode.ai/zen/v1/models", headers);
+  if (!live) return ZEN_FREE_MODELS;
+  const ids = new Set(live.map((model) => model.id ?? model.name).filter(Boolean));
+  return verifyZenModels(ids, apiKey);
+}
+
+async function getOpenCodeZenOrgId(access) {
+  try {
+    const response = await fetch("https://opencode.ai/console/api/config", {
+      headers: { Accept: "application/json", Authorization: `Bearer ${access}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return undefined;
+    const payload = await response.json().catch(() => ({}));
+    return payload?.config?.provider?.opencode?.options?.headers?.["x-opencode-org-id"];
+  } catch {
+    return undefined;
+  }
+}
+async function loginOpenCodeZen(callbacks) {
+  const server = "https://opencode.ai/console";
+  const response = await fetch(`${server}/auth/device/code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ client_id: "opencode-cli" }),
+  });
+  const device = await response.json().catch(() => ({}));
+  if (!response.ok || !device.device_code) throw new Error(device.error || `OpenCode device login failed (HTTP ${response.status})`);
+  const verificationUrl = new URL(String(device.verification_uri_complete || `/console/device?user_code=${encodeURIComponent(device.user_code)}&client_id=opencode-cli`), server).href;
+  callbacks.onAuth({ url: verificationUrl, instructions: `OpenCode login code: ${device.user_code}` });
+  const interval = Math.max(1, Number(device.interval) || 5) * 1000;
+  const deadline = Date.now() + Math.max(60, Number(device.expires_in) || 600) * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, interval));
+    const tokenResponse = await fetch(`${server}/auth/device/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: device.device_code, client_id: "opencode-cli" }),
+    });
+    const token = await tokenResponse.json().catch(() => ({}));
+    if (token.access_token) {
+      const orgId = await getOpenCodeZenOrgId(token.access_token);
+      if (orgId) process.env.OPENCODE_ORG_ID = orgId;
+      return { type: "oauth", access: token.access_token, refresh: token.refresh_token, expires: Date.now() + Number(token.expires_in || 3600) * 1000, metadata: orgId ? { orgId } : undefined };
+    }
+    if (token.error && token.error !== "authorization_pending" && token.error !== "slow_down") throw new Error(`OpenCode login failed: ${token.error}`);
+    if (token.error === "slow_down") await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  throw new Error("OpenCode login timed out");
+}
+
+async function refreshOpenCodeZen(credentials, signal) {
+  const response = await fetch("https://opencode.ai/console/auth/device/token", {
+    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ grant_type: "refresh_token", refresh_token: credentials.refresh, client_id: "opencode-cli" }), signal,
+  });
+  const token = await response.json().catch(() => ({}));
+  if (!response.ok || !token.access_token) throw new Error(token.error || `OpenCode token refresh failed (HTTP ${response.status})`);
+  const orgId = credentials.metadata?.orgId || await getOpenCodeZenOrgId(token.access_token);
+  if (orgId) process.env.OPENCODE_ORG_ID = orgId;
+  return { ...credentials, access: token.access_token, refresh: token.refresh_token || credentials.refresh, expires: Date.now() + Number(token.expires_in || 3600) * 1000, metadata: orgId ? { ...(credentials.metadata || {}), orgId } : credentials.metadata };
+}
+
+const openCodeZenOAuth = {
+  name: "OpenCode Console account",
+  async login(callbacks) { return loginOpenCodeZen(callbacks); },
+  async refreshToken(credentials, signal) { return refreshOpenCodeZen(credentials, signal); },
+  getApiKey(credentials) { return credentials?.access; },
+};
+
+function registerManagedProvider(pi, id, config, _envKey, { anonymous = false, oauth } = {}) {
   // `registerProvider` is the extension API `(providerId, config)`, not the
   // native-provider API that accepts a single provider object. Passing the
   // object as the first argument makes Pi treat it as the provider id and
@@ -1763,9 +1871,11 @@ function registerManagedProvider(pi, id, config, _envKey, { anonymous = false } 
   pi.registerProvider(id, {
     name: config.name,
     baseUrl: config.baseUrl,
-    apiKey: anonymous ? "public" : undefined,
+    apiKey: oauth ? undefined : (anonymous ? "public" : undefined),
+    oauth,
     api: "openai-completions",
     streamSimple: config.streamSimple,
+    refreshModels: config.refreshModels,
     models: config.models ?? [],
   });
 }
@@ -1793,8 +1903,8 @@ function registerAll(pi, m) {
     if (Array.isArray(m[key])) m[key] = m[key].map(withCapabilities);
   }
   registerManagedProvider(pi, "opencode-zen", {
-    name: "OpenCode Zen (native headers)", baseUrl: "https://opencode.ai/zen/v1", streamSimple: streamOpenCode, models: m.zen,
-  }, "OPENCODE_API_KEY", { anonymous: true });
+    name: "OpenCode Zen (native headers)", baseUrl: "https://opencode.ai/zen/v1", streamSimple: streamOpenCode, refreshModels: refreshOpenCodeZenModels, models: m.zen,
+  }, "OPENCODE_API_KEY", { anonymous: true, oauth: openCodeZenOAuth });
   registerManagedProvider(pi, "sensenova", {
     name: "SenseNova (商汤日日新)", baseUrl: "https://token.sensenova.cn/v1", streamSimple: streamSenseNova, models: m.sensenova,
   }, "SENSENOVA_API_KEY", { anonymous: true });

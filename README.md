@@ -4,12 +4,7 @@
 
 ## 问题背景
 
-OpenCode Zen 的免费模型由上游 "Console" 推理提供商托管，其**按 `User-Agent` 头**决定是否放行免费容量：
-
-- 请求带 `User-Agent: opencode/...` → 放行（200）
-- 请求带 `curl`、`OpenAI/JS` 等非 opencode UA → 拒绝（429 `FreeUsageLimitError`）
-
-pi 内置的 opencode provider 不使用 opencode UA，因此直接调用免费模型必然 429。本扩展注册了一个**自包含的 provider**（`opencode-zen`），用原生头（`User-Agent: opencode/1.15.5` + `x-opencode-client` + `x-opencode-session/request` ULID ID）发起请求，同时把 pi 内部消息格式正确转换为 OpenAI 兼容格式（`developer`→`system`、thinking 块转回 assistant 消息的 `reasoning_content`、tool 消息转 `role: "tool"` 等）。
+OpenCode Zen 的免费模型由上游 Console 推理提供商托管。本扩展注册独立的 `opencode-zen` provider，并使用官方当前格式的 `User-Agent`、`x-opencode-client`、`x-opencode-project`、`x-opencode-session` 和 `x-opencode-request` 请求头。登录后可通过 Console OAuth 获取 access/refresh token 和组织 ID。
 
 **零外部依赖**：不 import pi-ai（pi 是单文件 bun 打包，磁盘上无法解析该模块），自带 SSE 解析与事件流。
 
@@ -52,7 +47,7 @@ pi install https://github.com/pgciq/pi-cn-free-model-providers
 
 npm 包已发布：<https://www.npmjs.com/package/pi-cn-free-model-providers>
 
-当前版本：`1.0.26`。安装命令：
+当前版本：`1.0.29`。安装命令：
 
 ```bash
 pi install npm:pi-cn-free-model-providers
@@ -151,11 +146,33 @@ pi --model modelscope/Qwen/Qwen3-Coder-30B-A3B-Instruct
 
 ### OpenCode Zen 当前状态
 
-截至最近一次巡检，以下仍留在 Zen `/v1/models` 的旧免费 ID 对扩展匿名探测均返回 `403 FreeTierError`，因此已从静态白名单和文档中移除：`mimo-v2.5-free`、`nemotron-3-ultra-free`、`nemotron-3.5-lightning-free`、`big-pickle`。扩展不会把未验证可用的模型注册成“免费模型”。
+当前 Console 配置中 `price=0` 的免费模型会加入 `opencode-zen` 白名单：
 
-Zen provider 仍保留后台目录发现：当官方恢复一个可由扩展调用的免费模型时，会自动探测并注册；在没有稳定免费模型时，建议使用其他 provider。
+| 模型 |
+|---|
+| `big-pickle` |
+| `ling-3.0-flash-fin-free` |
+| `mimo-v2.6-flash-free` |
+| `muse-spark-1.2-contributor-free` |
+| `muse-spark-1.3-contributor-free` |
+| `nemotron-3-ultra-free` |
+| `nemotron-3.5-lightning-free` |
 
-> 🔭 **变动监听**：`.github/workflows/opencode-zen-watch.yml` 每日巡检 `/v1/models`，并使用匿名 `public` key 对在册模型做最小探测；模型消失或返回鉴权/计费拒绝时自动创建或更新维护 Issue。网络错误、429 和 5xx 只记为 UNKNOWN，不会误判为付费。
+独立脚本探测可能返回 `403 FreeTierError`，因为 OpenCode 免费层会检查完整的官方客户端上下文；这类探测失败不会直接删除 Console 配置中标记为零价格的模型。最终可用性以 Pi 中实际请求为准。
+
+执行：
+
+```text
+/login opencode-zen
+```
+
+登录成功后，OAuth 凭据会保存到 `~/.pi/agent/auth.json`，组织 ID 会从 Console 配置自动读取并保存。刷新模型后可通过：
+
+```text
+/model
+```
+
+查看 `opencode-zen` 模型。
 
 TUI 内 **Ctrl+P** 循环切换模型。
 
