@@ -2,6 +2,7 @@
 // Fixes pi's 429 on free models by sending OpenCode-native headers
 // (x-opencode-client: cli + ses_/msg_ ULID ids) and converting
 // developer->system roles (upstream only accepts system/user/assistant).
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -836,7 +837,9 @@ function makeOpenAIStream(baseUrl, envKey, opts = {}) {
     const maxTokens = typeof opts.maxTokens === "function" ? opts.maxTokens(model) : (opts.maxTokens ?? 128000);
     const cfg = {
       url: `${baseUrl.replace(/\/+$/, "")}/chat/completions`,
-      key: () => options?.apiKey ?? process.env[envKey] ?? (options?.apiKey && options.apiKey !== "public" ? options.apiKey : undefined),
+      key: () => opts.preferEnv
+        ? process.env[envKey] ?? options?.apiKey
+        : options?.apiKey ?? process.env[envKey] ?? (options?.apiKey && options.apiKey !== "public" ? options.apiKey : undefined),
       headers: () => ({}),
       envKey,
       maxTokens,
@@ -913,6 +916,7 @@ const streamNvidia = makeOpenAIStream("https://integrate.api.nvidia.com/v1", "NV
 const AMD_URL = "https://developer.amd.com.cn/radeon/api/v1";
 const streamAmd = makeOpenAIStream(AMD_URL, "AMD_API_KEY", {
   maxTokens: (model) => model.maxTokens ?? 65536,
+  preferEnv: true,
 });
 
 // Agnes AI — OpenAI-compatible gateway (apihub.agnes-ai.com = 国际站,
@@ -1366,10 +1370,17 @@ const NVIDIA_MODELS = [
     maxTokens: 65536,
   },
 ];
-// AMD Radeon Cloud is paid-only and intentionally not registered. Keep an empty
-// placeholder so repository contract tooling continues to account for the
-// provider family without exposing billable models in the selector.
-const AMD_MODELS = [];
+// AMD Radeon Cloud public free tier. The dashboard labels these models
+// Free; points track the daily quota and are not charges.
+const AMD_MODELS = [
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+  { id: "DeepSeek-V4-Flash-0731", name: "DeepSeek V4 Flash 0731 (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "Qwen3.8-Flash-Next", name: "Qwen3.8 Flash Next (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "Qwen3.8-27B", name: "Qwen3.8 27B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "MiniCPM5-2B", name: "MiniCPM5 2B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 65536 },
+  { id: "MinerU2.5-Pro", name: "MinerU2.5 Pro (via AMD Radeon Cloud, limited free)", api: "openai-completions", input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 4096, amdLimitedFree: true },
+];
 const CLOUDFLARE_MODELS = [
   {
     id: "@cf/openai/gpt-oss-120b",
@@ -1694,7 +1705,7 @@ function initialModels() {
     siliconflow: cache.siliconflow ?? curated.siliconflow,
     modelscope: cache.modelscope ?? curated.modelscope,
     nvidia: cache.nvidia ?? curated.nvidia,
-    amd: cache.amd ?? curated.amd,
+    amd: curated.amd,
     cloudflare: curated.cloudflare,
     agnes: cache.agnes ?? curated.agnes,
   };
@@ -1795,6 +1806,9 @@ function registerAll(pi, m) {
   registerManagedProvider(pi, "nvidia", {
     name: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", streamSimple: streamNvidia, models: m.nvidia,
   }, "NVIDIA_NIM_API_KEY", { anonymous: true });
+  registerManagedProvider(pi, "amd", {
+    name: "AMD Radeon Cloud (免费额度)", baseUrl: AMD_URL, streamSimple: streamAmd, models: m.amd,
+  }, "AMD_API_KEY", { anonymous: true });
   registerManagedProvider(pi, "cloudflare", {
     name: "Cloudflare Workers AI (免费额度)", baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1", streamSimple: streamCloudflare, models: m.cloudflare,
   }, "CLOUDFLARE_API_KEY");
@@ -1868,6 +1882,196 @@ function registerPricesCommand(pi) {
     },
   });
   pi.registerEntryRenderer("model-prices", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
+}
+
+async function amdBrowserSession(includeRecent = false, { openBrowser = true, includeCapacity = false } = {}) {
+  const port = 9229;
+  const profile = join(homedir(), ".pi", "amd-browser-profile");
+  mkdirSync(profile, { recursive: true });
+  const command = process.platform === "win32" ? "start" : "xdg-open";
+  const args = process.platform === "win32"
+    ? ["", "msedge", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "https://developer.amd.com.cn/radeon/profile"]
+    : [`https://developer.amd.com.cn/radeon/profile`];
+  if (openBrowser) {
+    if (process.platform === "win32") spawn(command, args, { detached: true, stdio: "ignore", shell: true }).unref();
+    else spawn(command, args, { detached: true, stdio: "ignore" }).unref();
+  }
+  let tabs;
+  for (let i = 0; i < 30; i++) {
+    try { tabs = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); if (tabs.length) break; } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const tab = tabs?.find((item) => item.type === "page" && !item.url.startsWith("devtools://") && item.url.includes("developer.amd.com.cn"))
+    ?? tabs?.find((item) => item.type === "page" && !item.url.startsWith("devtools://"));
+  if (!tab?.webSocketDebuggerUrl) throw new Error("Could not connect to Edge remote debugging. Log in in the opened browser, then retry.");
+  const ws = new WebSocket(tab.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+  let id = 0;
+  const pending = new Map();
+  ws.onmessage = (event) => { const message = JSON.parse(event.data); const waiter = pending.get(message.id); if (waiter) { pending.delete(message.id); waiter(message); } };
+  const call = (method, params = {}, timeoutMs = 20000) => new Promise((resolve, reject) => { const requestId = ++id; const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(`${method} timed out`)); }, timeoutMs); pending.set(requestId, (message) => { clearTimeout(timer); resolve(message); }); ws.send(JSON.stringify({ id: requestId, method, params })); });
+  await call("Page.enable");
+  if (openBrowser) await call("Page.navigate", { url: "https://developer.amd.com.cn/radeon/profile" });
+  const expression = ` (async()=>{const c=new AbortController();const t=setTimeout(()=>c.abort(),${includeCapacity ? 45000 : 15000});try{const r=await fetch('/radeon/api/profile/model-usage?include_recent=${includeRecent ? "true" : "false"}',{credentials:'include',signal:c.signal});const usage=await r.text();let capacity=null;if(${includeCapacity ? "true" : "false"}){try{const q=new AbortController(),qt=setTimeout(()=>q.abort(),40000),x=await fetch('/radeon/api/tokenfactory/load',{credentials:'include',signal:q.signal});capacity={status:x.status,text:await x.text()};clearTimeout(qt);}catch(e){capacity={status:0,text:e.name==='AbortError'?'timeout':String(e)}}}const text=document.body.innerText;const keys=[...text.matchAll(/(?:rc|sk)-[A-Za-z0-9_-]{24,}/g)].map(m=>m[0]);return JSON.stringify({status:r.status,usage,capacity,apiKey:keys.find(k=>k.startsWith('rc-'))||keys[0]||null,text:text.slice(0,2000)});}catch(e){return JSON.stringify({status:0,usage:e.name==='AbortError'?'timeout':String(e),apiKey:null});}finally{clearTimeout(t)}})()`;
+  let result;
+  // Give the user time to complete SSO/MFA. The profile page initially loads
+  // before authentication and the API consequently returns {detail: Login required}.
+  for (let attempt = 0; attempt < 120; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    result = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, includeCapacity ? 60000 : 20000).catch(() => null);
+    if (!result) continue;
+    const value = JSON.parse(result.result?.result?.value || "{}");
+    if (!openBrowser && value.status !== 200) throw new Error("AMD login required");
+    if (value.status === 200) {
+      ws.close();
+      return value;
+    }
+  }
+  ws.close();
+  throw new Error("AMD login was not completed within 120 seconds. Finish login in the opened browser and run /amd-login again.");
+}
+
+function formatAmdUsage(data) {
+  const today = data.today || {};
+  const models = data.by_model || [];
+  const modelRows = models.map((row) => `| ${row.model} | ${row.requests ?? 0} | ${(row.total_tokens ?? 0).toLocaleString()} | ${(row.prefill_tokens ?? 0).toLocaleString()} | ${(row.kv_cache_hit_tokens ?? row.cached_tokens ?? 0).toLocaleString()} | ${(row.decoding_tokens ?? row.completion_tokens ?? 0).toLocaleString()} | ${(row.reasoning_tokens ?? 0).toLocaleString()} | ${Number(row.cost ?? 0).toFixed(6)} pts |`);
+  return [
+    "## Daily usage",
+    "",
+    "| Metric | Value |",
+    "|---|---:|",
+    `| Today used | ${Number(today.cost ?? 0).toFixed(6)} pts |`,
+    `| Today remaining | ${data.daily_cost_limit_usd != null ? Math.max(0, Number(data.daily_cost_limit_usd) - Number(today.cost || 0)).toFixed(6) : "—"} pts |`,
+    `| Today tokens | ${(today.total_tokens ?? 0).toLocaleString()} |`,
+    `| RPM limit | ${data.rpm_limit ?? "—"} |`,
+    `| Daily allowance | ${data.daily_cost_limit_usd ?? "—"} pts |`,
+    "",
+    "## Usage by model",
+    "",
+    "| Model | Requests | Tokens | Prefill | KV hit | Decoding | Reasoning | Usage |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ...modelRows,
+  ].join("\n");
+}
+
+function formatAmdModelCatalog() {
+  const rows = AMD_MODELS.map((model) => `| ${model.id} | ${model.input?.join(" + ") || "text"} | ${model.contextWindow ? `${Math.round(model.contextWindow / 1024)}K` : "—"} | ${model.reasoning ? "✓" : "—"} | ${model.input?.includes("image") ? "✓" : "—"} | ${model.amdLimitedFree ? "Limited Free" : "Free quota"} |`);
+  return [
+    "## Model capabilities and pricing",
+    "",
+    "| Model | Input | Context | Reasoning | Vision | Price |",
+    "|---|---|---:|:---:|:---:|---|",
+    ...rows,
+  ].join("\n");
+}
+
+function registerAmdModelCommand(pi) {
+  pi.registerCommand("amd-model", {
+    description: "Show AMD Radeon Cloud model capabilities and free-quota pricing",
+    handler: async (_args, ctx) => {
+      try {
+        const result = await amdBrowserSession(false, { openBrowser: false });
+        if (result.apiKey) process.env.AMD_API_KEY = result.apiKey;
+        const markdown = [
+          "# AMD Radeon Cloud models",
+          "",
+          "✅ **Login successful**",
+          "",
+          formatAmdModelCatalog(),
+          "",
+          "_Prices are free within the public daily quota. Points track quota usage and are not charges._",
+        ].join("\n");
+        showModelMarkdown(pi, ctx, "amd-model", markdown);
+      } catch (error) {
+        showModelMarkdown(pi, ctx, "amd-model", [
+          "# AMD Radeon Cloud models",
+          "",
+          "🔐 **AMD login required**",
+          "",
+          String(error?.message || error).replace(/[\`\n]/g, " "),
+          "",
+          "Run `/amd-login` to open the AMD login page, then retry `/amd-model`.",
+        ].join("\n"));
+      }
+    },
+  });
+  pi.registerEntryRenderer("amd-model", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
+}
+
+function formatAmdCapacity(capacity) {
+  if (!capacity) return "_Capacity data unavailable._";
+  if (capacity.status !== 200) return `Capacity request: HTTP ${capacity.status || "error"} (${capacity.text})`;
+  try { const value = JSON.parse(capacity.text); return ["## AMD capacity", "", "| Metric | Value |", "|---|---:|", ...Object.entries(value).filter(([, v]) => typeof v !== "object").map(([k, v]) => `| ${k} | ${v} |`)].join("\n"); } catch { return `Capacity response: ${capacity.text}`; }
+}
+
+function registerAmdCapacityCommand(pi) {
+  pi.registerCommand("amd-capacity", {
+    description: "Show AMD Radeon Cloud capacity utilization",
+    handler: async (_args, ctx) => {
+      try { const result = await amdBrowserSession(false, { openBrowser: false, includeCapacity: true }); showModelMarkdown(pi, ctx, "amd-capacity", ["# AMD Radeon Cloud capacity", "", formatAmdCapacity(result.capacity)].join("\n")); }
+      catch (error) { showModelMarkdown(pi, ctx, "amd-capacity", `# AMD Radeon Cloud capacity\\n\\n**${String(error?.message || error).replace(/[\\`\\n]/g, " ")}**`); }
+    },
+  });
+  pi.registerEntryRenderer("amd-capacity", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
+}
+
+function registerAmdLoginCommand(pi) {
+  pi.registerCommand("amd-login", {
+    description: "Open AMD profile login and import the displayed API key/session",
+    handler: async (_args, ctx) => {
+      try {
+        const result = await amdBrowserSession(false);
+        if (result.apiKey) process.env.AMD_API_KEY = result.apiKey;
+        const usage = JSON.parse(result.usage || "{}");
+        const markdown = [
+          "# AMD Radeon Cloud login",
+          "",
+          "✅ **Login successful**",
+          "",
+          result.apiKey ? "API key imported into the current Pi process (masked)." : "API key was not detected.",
+          "",
+          formatAmdModelCatalog(),
+          "",
+          formatAmdUsage(usage),
+        ].join("\n");
+        showModelMarkdown(pi, ctx, "amd-login", markdown);
+      } catch (error) { showModelMarkdown(pi, ctx, "amd-login", `# AMD Radeon Cloud login\n\n**${String(error?.message || error).replace(/[\`\n]/g, " ")}**`); }
+    },
+  });
+  pi.registerEntryRenderer("amd-login", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
+}
+function getAmdProfileCookie() {
+  return process.env.AMD_PROFILE_COOKIE?.trim() || "";
+}
+
+async function fetchAmdModelUsage(includeRecent = false) {
+  const result = await amdBrowserSession(includeRecent, { openBrowser: false });
+  if (result.apiKey) process.env.AMD_API_KEY = result.apiKey;
+  if (result.status !== 200) {
+    let detail = result.usage;
+    try { detail = JSON.parse(result.usage)?.detail || detail; } catch {}
+    throw new Error(`AMD profile API returned HTTP ${result.status}: ${detail}`);
+  }
+  const data = JSON.parse(result.usage || "{}");
+  return { data, capacity: result.capacity };
+}
+
+function registerAmdUsageCommand(pi) {
+  pi.registerCommand("amd-usage", {
+    description: "Show AMD Radeon Cloud usage (requires AMD_PROFILE_COOKIE)",
+    handler: async (args, ctx) => {
+      try {
+        const includeRecent = /(?:^|\s)(recent|details?)\b/i.test(args || "");
+        const result = await fetchAmdModelUsage(includeRecent);
+        const data = result.data;
+        const markdown = ["# AMD Radeon Cloud usage", "", "_Points track the daily free quota; they are not charges._", "", formatAmdUsage(data)].join("\n");
+        showModelMarkdown(pi, ctx, "amd-usage", markdown);
+      } catch (error) {
+        showModelMarkdown(pi, ctx, "amd-usage", ["# AMD Radeon Cloud usage", "", `**Unable to query usage:** ${String(error?.message || error).replace(/[`\n]/g, " ")}`, "", "Set `AMD_PROFILE_COOKIE` to the Cookie header from the logged-in `/radeon/profile` page."].join("\n"));
+      }
+    },
+  });
+  pi.registerEntryRenderer("amd-usage", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
 }
 
 function installUsageTracker(pi) {
@@ -1998,12 +2202,13 @@ async function verifyAndUpdateModels(pi) {
     ...OPENCODE_STATIC_HEADERS,
     Authorization: `Bearer ${process.env.OPENCODE_API_KEY ?? "public"}`,
   };
-  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, agnesModels] = await Promise.all([
+  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, amdModels, agnesModels] = await Promise.all([
     fetchLiveModelIds("https://opencode.ai/zen/v1/models", zenHeaders),
     filterToLive(SENSENOVA_MODELS, "https://token.sensenova.cn/v1/models", authHeader("SENSENOVA_API_KEY")),
     filterToLive(SILICONFLOW_MODELS, "https://api.siliconflow.cn/v1/models", authHeader("SILICONFLOW_API_KEY")),
     filterToLive(MODELSCOPE_MODELS, "https://api-inference.modelscope.cn/v1/models", authHeader("MODELSCOPE_API_KEY")),
     filterToLive(NVIDIA_MODELS, "https://integrate.api.nvidia.com/v1/models", authHeader("NVIDIA_NIM_API_KEY")),
+    AMD_MODELS,
     filterToLive(AGNES_MODELS, "https://apihub.agnes-ai.com/v1/models", authHeader("AGNES_API_KEY")),
   ]);
   const zenModels = zenLive ? await verifyZenModels(zenLive) : ZEN_FREE_MODELS;
@@ -2013,6 +2218,7 @@ async function verifyAndUpdateModels(pi) {
     siliconflow: siliconflowModels,
     modelscope: modelscopeModels,
     nvidia: nvidiaModels,
+    amd: AMD_MODELS,
     cloudflare: CLOUDFLARE_MODELS,
     agnes: agnesModels,
   };
@@ -2028,6 +2234,10 @@ export default function (pi) {
   // /reload.
   registerAll(pi, initialModels());
   registerCapabilitiesCommand(pi);
+  registerAmdUsageCommand(pi);
+  registerAmdLoginCommand(pi);
+  registerAmdModelCommand(pi);
+  registerAmdCapacityCommand(pi);
   registerPricesCommand(pi);
   installUsageTracker(pi);
   registerUsageCommand(pi);

@@ -161,7 +161,7 @@ TUI 内 **Ctrl+P** 循环切换模型。
 
 ## 额外供应商
 
-除 Zen 免费模型外，本扩展还注册了 **7 个第三方免费/低成本供应商**。AMD Radeon Cloud 当前仅提供付费模型，按本项目“只收录免费模型”的定位暂不注册。所有 provider 的 key 解析优先级一致：环境变量 → auth.json 中非 `public` 的 key → 匿名占位（1.0.4 起 provider 自注册 `apiKey: "public"`，pi 视为已配置，装完即显示；`public` 本身会被忽略走兜底）。
+除 Zen 免费模型外，本扩展还注册了 **8 个第三方免费/低成本供应商**。AMD Radeon Cloud 提供公共免费额度模型；Dedicated Model APIs 不收录。所有 provider 的 key 解析优先级一致：环境变量 → auth.json 中非 `public` 的 key → 匿名占位（1.0.4 起 provider 自注册 `apiKey: "public"`，pi 视为已配置，装完即显示；`public` 本身会被忽略走兜底）。
 
 ### SenseNova（商汤日日新）
 
@@ -269,11 +269,44 @@ pi -p --provider nvidia --model nvidia/openai/gpt-oss-20b "你好"
 
 > 🔭 **变动监听**：`.github/workflows/nvidia-watch.yml` 每周巡检（04:11 UTC）：匿名目录比对捕获下线/改名 + 仓库密钥对在册模型发微型流式探活（捕获「在册但不可用/无权限」）+ 重点厂商新增条目扫描提示评估收录；基线与指纹存 `.github/watch-state/` 由 workflow 自动提交。需配置 secret `NVIDIA_NIM_API_KEY`。
 
-### AMD Radeon Cloud（暂不收录）
+### AMD Radeon Cloud（公共免费额度）
 
-AMD Radeon Cloud 当前目录中的模型均为付费模型。本扩展定位为免费模型集合，因此不注册 AMD provider 或任何 AMD 模型。此前巡检发现的 AMD 模型仅保留在 Issue/历史记录中，不会出现在 Pi 模型选择器内。
->
-> 🔭 **变动监听**：`.github/workflows/amd-watch.yml` 每周使用仓库 secret `AMD_API_KEY` 检查模型是否仍在目录、价格/上下文/能力指纹是否变化，并对每个在册模型发送一次微型流式探活；同时发现目录新增模型并自动更新 `.github/watch-state/` 基线。
+AMD Radeon Cloud 提供一组 **Public Free Model APIs**。Token Factory 中的 points 用于追踪每日额度消耗，不是账单收费；当前账户示例为每日 `1.000000 pts`、RPM `20`。额度用尽后会受到限流，免费政策和额度可能变化。Dedicated Model APIs 使用自有 credits，本扩展不收录。
+
+#### 可用公共免费模型
+
+| 模型 | 类型 | 上下文 |
+|---|---|---:|
+| `DeepSeek-V4.1-Flash` | VLM（文本+图像） | 1M |
+| `DeepSeek-V4-Flash-0731` | LLM（文本） | 1M |
+| `GLM-5.3-Flash` | LLM（文本） | 256K |
+| `Qwen3.8-Flash-Next` | VLM（文本+图像） | 256K |
+| `Qwen3.8-27B` | VLM（文本+图像） | 256K |
+| `MiniCPM5-2B` | LLM（文本） | 128K |
+| `MinerU2.5-Pro` | Limited Free（OCR/文档理解） | 128K |
+
+#### 查看个人用量
+
+AMD 的模型 API key 只能调用模型，个人用量页面使用网页登录会话。扩展提供 `/amd-usage` 命令查询 `GET /api/profile/model-usage`。
+
+1. 登录 <https://developer.amd.com.cn/radeon/profile>
+2. 在浏览器开发者工具 Network 中找到 `model-usage` 请求
+3. 复制该请求的 **Cookie** 请求头（不要分享 Cookie）
+4. 在启动 Pi 的同一进程环境中设置：
+
+```powershell
+$env:AMD_PROFILE_COOKIE = "粘贴浏览器请求的 Cookie 值"
+pi
+```
+
+然后在 Pi 中运行：
+
+```text
+/amd-usage
+/amd-usage recent
+```
+
+`MinerU2.5-Pro` 为 AMD 页面标记的 **Limited Free** 模型，现已收录；它更适合 OCR/文档理解，不一定适合作为常规编码聊天模型。
 
 ### Agnes AI（国际站 + 中国站）
 
