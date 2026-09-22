@@ -285,28 +285,40 @@ AMD Radeon Cloud 提供一组 **Public Free Model APIs**。Token Factory 中的 
 | `MiniCPM5-2B` | LLM（文本） | 128K |
 | `MinerU2.5-Pro` | Limited Free（OCR/文档理解） | 128K |
 
-#### 查看个人用量
+#### 查看模型、登录和个人用量
 
-AMD 的模型 API key 只能调用模型，个人用量页面使用网页登录会话。扩展提供 `/amd-usage` 命令查询 `GET /api/profile/model-usage`。
-
-1. 登录 <https://developer.amd.com.cn/radeon/profile>
-2. 在浏览器开发者工具 Network 中找到 `model-usage` 请求
-3. 复制该请求的 **Cookie** 请求头（不要分享 Cookie）
-4. 在启动 Pi 的同一进程环境中设置：
-
-```powershell
-$env:AMD_PROFILE_COOKIE = "粘贴浏览器请求的 Cookie 值"
-pi
-```
-
-然后在 Pi 中运行：
+扩展提供以下 AMD 命令：
 
 ```text
-/amd-usage
-/amd-usage recent
+/amd-login      打开 AMD Profile，完成网页登录并自动导入页面显示的 rc- API key
+/amd-model      显示模型能力和免费额度价格；已登录时复用现有会话
+/amd-usage      显示每日额度和按模型用量
+/amd-usage recent 额外请求最近调用明细
+/amd-capacity   查询较慢的容量利用率接口
 ```
 
-`MinerU2.5-Pro` 为 AMD 页面标记的 **Limited Free** 模型，现已收录；它更适合 OCR/文档理解，不一定适合作为常规编码聊天模型。
+首次使用或登录会话失效时运行 `/amd-login`。扩展会使用独立的 Edge profile：
+
+```text
+%USERPROFILE%\\.pi\\amd-browser-profile
+```
+
+用户只需在自动打开的 AMD Profile 页面完成登录，扩展会通过当前登录会话获取用量，并读取页面显示的 `rc-...` API key 注入当前 Pi 进程。不会要求手动复制 Cookie，也不会将 Cookie 或 API key 写入项目文件。
+
+用量接口：
+
+```text
+GET /radeon/api/profile/model-usage?include_recent=false
+GET /radeon/api/profile/model-usage?include_recent=true   # recent
+```
+
+容量接口响应较慢，由 `/amd-capacity` 单独查询：
+
+```text
+GET /radeon/api/tokenfactory/load
+```
+
+`AMD_API_KEY` 仍可通过环境变量预先配置；如果 `/amd-login` 获取到新的页面 key，当前 Pi 进程会优先使用新 key。
 
 ### Agnes AI（国际站 + 中国站）
 
