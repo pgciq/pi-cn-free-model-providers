@@ -1,6 +1,6 @@
 {
   "name": "pi-cn-free-model-providers",
-  "version": "1.0.29",
+  "version": "1.0.30",
   "description": "pi (AI coding agent CLI) extension for mainland-China users: curated access to free-first model providers including OpenCode Zen, SenseNova, SiliconFlow, ModelScope, NVIDIA NIM, Cloudflare, and Agnes AI. Providers support Pi-managed auth.json credentials with environment-variable fallbacks.",
   "type": "module",
   "main": "pi-cn-free-model-providers-ext.mjs",
