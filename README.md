@@ -278,14 +278,14 @@ AMD Radeon Cloud 提供一组 **Public Free Model APIs**。Token Factory 中的 
 | 模型 | 类型 | 上下文 |
 |---|---|---:|
 | `DeepSeek-V4.1-Flash` | VLM（文本+图像） | 1M |
-| `DeepSeek-V4-Flash-0731` | LLM（文本） | 1M |
 | `GLM-5.3-Flash` | LLM（文本） | 256K |
 | `Qwen3.8-Flash-Next` | VLM（文本+图像） | 256K |
 | `Qwen3.8-27B` | VLM（文本+图像） | 256K |
 | `MiniCPM5-2B` | LLM（文本） | 128K |
 | `MinerU2.5-Pro` | Limited Free（OCR/文档理解） | 128K |
 
-#### 查看模型、登录和个人用量
+`DeepSeek-V4-Flash-0731` 当前 API 返回 `model_not_found`，已从扩展白名单移除；AMD 页面历史列表可能仍显示该模型。
+
 
 扩展提供以下 AMD 命令：
 

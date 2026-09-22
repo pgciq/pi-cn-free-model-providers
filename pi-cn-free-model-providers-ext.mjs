@@ -1021,7 +1021,9 @@ async function run(stream, output, model, context, options, cfg) {
     });
     if (!response.ok) {
       const errText = await response.text();
-      const hint = explainModelChurn(response.status, errText);
+      const hint = model.provider === "amd"
+        ? "Hint: this AMD model is no longer available under this ID; use /amd-model to review the current AMD free-tier catalog."
+        : explainModelChurn(response.status, errText);
       const authHint = response.status === 401 || response.status === 403
         ? `\nHint: ${cfg.envKey ?? "API"} may be expired or invalid — run /login ${model.provider} to update it.`
         : "";
@@ -1374,7 +1376,6 @@ const NVIDIA_MODELS = [
 // Free; points track the daily quota and are not charges.
 const AMD_MODELS = [
   { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
-  { id: "DeepSeek-V4-Flash-0731", name: "DeepSeek V4 Flash 0731 (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
   { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
   { id: "Qwen3.8-Flash-Next", name: "Qwen3.8 Flash Next (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
   { id: "Qwen3.8-27B", name: "Qwen3.8 27B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
@@ -2023,8 +2024,9 @@ function registerAmdLoginCommand(pi) {
         const result = await amdBrowserSession(false);
         if (result.apiKey) process.env.AMD_API_KEY = result.apiKey;
         const usage = JSON.parse(result.usage || "{}");
+        updateAmdStatus(ctx, usage);
+        startAmdStatusRefresh();
         const markdown = [
-          "# AMD Radeon Cloud login",
           "",
           "✅ **Login successful**",
           "",
@@ -2056,6 +2058,35 @@ async function fetchAmdModelUsage(includeRecent = false) {
   return { data, capacity: result.capacity };
 }
 
+let amdStatusUi;
+let amdStatusTimer;
+
+function updateAmdStatus(ctx, data) {
+  if (!ctx?.ui?.setStatus) return;
+  amdStatusUi = ctx.ui;
+  const today = data?.today || {};
+  const used = Number(today.cost ?? 0);
+  const allowance = Number(data?.daily_cost_limit_usd);
+  const remaining = Number.isFinite(allowance) ? Math.max(0, allowance - used) : null;
+  const text = remaining == null
+    ? `AMD Today ${used.toFixed(6)} pts`
+    : `AMD Today ${used.toFixed(6)} / ${remaining.toFixed(6)} pts`;
+  ctx.ui.setStatus("amd-usage", ctx.ui.theme?.fg ? ctx.ui.theme.fg("accent", text) : text);
+}
+
+function startAmdStatusRefresh() {
+  if (amdStatusTimer) return;
+  amdStatusTimer = setInterval(async () => {
+    if (!amdStatusUi) return;
+    try {
+      const result = await fetchAmdModelUsage(false);
+      updateAmdStatus({ ui: amdStatusUi }, result.data);
+    } catch {
+      // Keep the last successful status; do not disturb the footer on transient failures.
+    }
+  }, 5 * 60 * 1000);
+  amdStatusTimer.unref?.();
+}
 function registerAmdUsageCommand(pi) {
   pi.registerCommand("amd-usage", {
     description: "Show AMD Radeon Cloud usage (requires AMD_PROFILE_COOKIE)",
@@ -2064,6 +2095,8 @@ function registerAmdUsageCommand(pi) {
         const includeRecent = /(?:^|\s)(recent|details?)\b/i.test(args || "");
         const result = await fetchAmdModelUsage(includeRecent);
         const data = result.data;
+        updateAmdStatus(ctx, data);
+        startAmdStatusRefresh();
         const markdown = ["# AMD Radeon Cloud usage", "", "_Points track the daily free quota; they are not charges._", "", formatAmdUsage(data)].join("\n");
         showModelMarkdown(pi, ctx, "amd-usage", markdown);
       } catch (error) {
