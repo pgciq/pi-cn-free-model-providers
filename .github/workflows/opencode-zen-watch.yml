@@ -1,11 +1,10 @@
 name: opencode-zen-model-watch
 
-# OpenCode Zen 的 /v1/models 不提供可靠的价格字段：
-# 1) 模型消失 = 下线/改名；
-# 2) 模型仍在目录但匿名 public 探测返回 401/402/403 = 免费档撤销；
-# 3) 429/5xx/网络错误只记为 UNKNOWN，不误判为付费。
-# 运行时扩展也会在启动后台做同样的实时交集与免费探测；本 workflow
-# 负责每日巡检并通过 Issue 提醒维护者同步代码和 README。
+# OpenCode Zen 的 /v1/models 不提供可靠的价格字段，匿名 chat 探测的 403
+# 也不能证明模型已转付费（FreeTierError 可能只是缺少官方客户端上下文）。
+# 本巡检以 Console /api/config 中的 model.cost 为价格权威：input/output
+# 全部为 0 才算免费；目录消失仍作为下线/改名信号。该接口需要仓库 secret
+# OPENCODE_API_KEY，不能再用匿名 403 做有效性判断。
 
 on:
   schedule:
@@ -51,12 +50,25 @@ jobs:
           test -s /tmp/live.txt
           echo "在线目录 $(wc -l < /tmp/live.txt) 个模型"
 
-      - name: Check disappearance and anonymous free status
+      - name: Fetch Console pricing catalog
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OPENCODE_API_KEY" || { echo '缺少 repository secret OPENCODE_API_KEY' >&2; exit 1; }
+          curl -fsSL --max-time 30 \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer $OPENCODE_API_KEY" \
+            "https://opencode.ai/console/api/config" -o /tmp/config.json
+          jq -e '.config.provider.opencode.models | type == "object"' /tmp/config.json >/dev/null
+          jq -r '.config.provider.opencode.models | to_entries[] | select((.value.cost.input // 0 | tonumber) == 0 and (.value.cost.output // 0 | tonumber) == 0) | .key' /tmp/config.json | sort -u > /tmp/free-by-price.txt
+          test -s /tmp/free-by-price.txt
+
+      - name: Check disappearance and Console price
         id: detect
         run: |
           set -euo pipefail
           : > /tmp/anomalies.txt
-          : > /tmp/unknown.txt
           while IFS= read -r id; do
             [ -z "$id" ] && continue
             if ! grep -qxF -- "$id" /tmp/live.txt; then
@@ -64,41 +76,15 @@ jobs:
               continue
             fi
 
-            body=$(jq -cn --arg model "$id" '{model:$model,messages:[{role:"user",content:"hi"}],max_tokens:1}')
-            set +e
-            http=$(curl -sS --max-time 30 -o /tmp/probe.json -w '%{http_code}' \
-              -H "User-Agent: opencode/1.15.5" \
-              -H "x-opencode-client: cli" \
-              -H "x-opencode-session: ses_watch_${GITHUB_RUN_ID}" \
-              -H "x-opencode-request: msg_watch_${GITHUB_RUN_ID}" \
-              -H "Authorization: Bearer public" \
-              -H "Content-Type: application/json" \
-              -d "$body" \
-              "https://opencode.ai/zen/v1/chat/completions")
-            rc=$?
-            set -e
-            [ "$rc" -eq 0 ] || http=000
-            case "$http" in
-              200)
-                echo "$id -> FREE"
-                ;;
-              401|402|403)
-                printf '%s\t匿名探测 HTTP %s（疑似已转付费或无免费权限）\n' "$id" "$http" >> /tmp/anomalies.txt
-                ;;
-              429|500|502|503|504|000)
-                printf '%s\tUNKNOWN（探测 HTTP %s，不据此判定付费）\n' "$id" "$http" >> /tmp/unknown.txt
-                ;;
-              *)
-                printf '%s\t异常 HTTP %s，请人工核验\n' "$id" "$http" >> /tmp/anomalies.txt
-                ;;
-            esac
+            if ! grep -qxF -- "$id" /tmp/free-by-price.txt; then
+              printf '%s\tConsole cost 非 0（免费档撤销或价格变更）\n' "$id" >> /tmp/anomalies.txt
+            else
+              echo "$id -> FREE（Console cost=0）"
+            fi
           done < /tmp/curated.txt
           echo "anomalies=$(grep -c . /tmp/anomalies.txt || true)" >> "$GITHUB_OUTPUT"
-          echo "unknown=$(grep -c . /tmp/unknown.txt || true)" >> "$GITHUB_OUTPUT"
           echo "--- 异常 ---"
           cat /tmp/anomalies.txt || true
-          echo "--- UNKNOWN（不告警） ---"
-          cat /tmp/unknown.txt || true
 
       - name: Open or update maintenance issue
         if: steps.detect.outputs.anomalies != '0'

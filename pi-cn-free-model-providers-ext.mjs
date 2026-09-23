@@ -1583,16 +1583,11 @@ async function filterToLive(curated, url, headers) {
   return kept.length ? kept : curated;
 }
 
-// ── Zen free-model auto-discovery ──
-// /v1/models exposes no pricing and paid models keep "-free" ids, so freeness
-// is verified by probing: a tiny chat completion per unknown model. Free
-// models accept the anonymous "public" key (HTTP 200) while paid ones reject
-// it during auth (401/402/403) before any tokens are billed. When a real
-// OPENCODE_API_KEY is set, the response's `cost` field must be zero instead —
-// paid models then succeed but report non-zero cost.
-// Returns "free" (verified), "paid" (verified not free), or "unknown"
-// (network/shape errors — callers must keep the model rather than drop it,
-// so a transient outage never wipes the list).
+// ── Zen free-model verification ──
+// /v1/models exposes no pricing. Console /api/config is the pricing
+// authority when an authenticated credential is available; anonymous chat
+// probes can return 403 FreeTierError because they lack official client
+// context, so 403 must never be treated as proof of a paid model.
 async function probeFreeStatus(modelId, apiKey = process.env.OPENCODE_API_KEY) {
   let res;
   try {
