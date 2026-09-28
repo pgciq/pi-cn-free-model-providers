@@ -1,5 +1,7 @@
+deepseek-flash
 deepseek-v4-flash
 deepseek-v4-pro
+deepseek-v4.1-flash
 glm-5.2
 kimi-k3
 sensenova-6.7-flash-lite
