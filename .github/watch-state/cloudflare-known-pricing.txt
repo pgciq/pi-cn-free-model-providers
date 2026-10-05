@@ -9,6 +9,8 @@
 @cf/black-forest-labs/flux-2-dev
 @cf/black-forest-labs/flux-2-klein-4b
 @cf/black-forest-labs/flux-2-klein-9b
+@cf/cloudflare/clef
+@cf/cloudflare/clef-flash
 @cf/deepgram/aura-1
 @cf/deepgram/aura-2-en
 @cf/deepgram/aura-2-es
