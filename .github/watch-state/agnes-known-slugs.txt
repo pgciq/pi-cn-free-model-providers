@@ -4,6 +4,7 @@ agnes-25-pro
 agnes-25-pro-alpha
 agnes-25-pro-beta
 agnes-30-flash
+agnes-30-pro
 agnes-image-20-flash
 agnes-image-21-flash
 agnes-image-25-flash
