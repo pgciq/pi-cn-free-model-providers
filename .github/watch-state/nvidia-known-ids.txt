@@ -8,3 +8,4 @@ moonshotai/kimi-k3
 openai/gpt-oss-120b
 openai/gpt-oss-20b
 stepfun-ai/step-3.7-flash
+stepfun-ai/step-5-preview
