@@ -12,6 +12,7 @@
 @cf/cloudflare/clef
 @cf/cloudflare/clef-flash
 @cf/cloudflare/clef-omni
+@cf/daily-co/phonellm-mini-alpha-2
 @cf/deepgram/aura-1
 @cf/deepgram/aura-2-en
 @cf/deepgram/aura-2-es
