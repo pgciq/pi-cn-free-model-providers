@@ -3,6 +3,7 @@ agnes-25-flash
 agnes-25-pro
 agnes-25-pro-alpha
 agnes-25-pro-beta
+agnes-25-pro-theta
 agnes-30-flash
 agnes-30-flash-max
 agnes-30-pro
