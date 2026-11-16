@@ -28,6 +28,20 @@ test("all curated model entries have selector-safe id and name", () => {
   }
 });
 
+test("AMD catalog models carry non-zero catalog prices", () => {
+  const match = source.match(/const AMD_MODELS = \[([\s\S]*?)\n\];/);
+  assert.ok(match, "expected AMD model catalog");
+  const costs = [...match[1].matchAll(/cost:\s*\{\s*input:\s*([\d.]+),\s*output:\s*([\d.]+)/g)];
+  assert.equal(costs.length, 4, "expected the four currently priced AMD catalog entries");
+  for (const [, input, output] of costs) {
+    assert.ok(Number(input) > 0 && Number(output) > 0, "AMD catalog prices should not be zero");
+  }
+});
+
+test("Agnes Image 2.5 Flash is not listed without verified pricing", () => {
+  assert.doesNotMatch(source, /id:\s*["']agnes-image-2\.5-flash["']/);
+});
+
 test("extension passes Node syntax validation", () => {
   execFileSync(process.execPath, ["--check", filePath(extensionPath)], { stdio: "pipe" });
 });

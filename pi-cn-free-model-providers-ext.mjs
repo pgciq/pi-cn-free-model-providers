@@ -1026,7 +1026,7 @@ async function run(stream, output, model, context, options, cfg) {
     if (!response.ok) {
       const errText = await response.text();
       const hint = model.provider === "amd"
-        ? "Hint: this AMD model is no longer available under this ID; use /amd-model to review the current AMD free-tier catalog."
+        ? "Hint: this AMD model is no longer available under this ID; use /amd-model to review the current AMD catalog."
         : explainModelChurn(response.status, errText);
       const authHint = response.status === 401 || response.status === 403
         ? `\nHint: ${cfg.envKey ?? "API"} may be expired or invalid — run /login ${model.provider} to update it.`
@@ -1118,39 +1118,24 @@ const AGNES_MODELS = [
     contextWindow: 131072,
     maxTokens: 4096,
   },
-];
-
-// ── Curated model allowlists ──
-// Models we vouch for: verified free tier + correct metadata (contextWindow,
-// maxTokens, reasoning, input, cost). At load each list is intersected with
-// the provider's live /v1/models so models that leave the free tier or get
-// renamed are auto-removed (drift detection). For Zen, every live model is
-// additionally probe-verified as free at load (see verifyZenModels): unknown
-// free models are auto-added with conservative metadata, and curated entries
-// that switched to paid are dropped despite being whitelisted.
-// No anonymous Zen model is currently verified as usable outside OpenCode.
-// Keep this empty rather than registering models that return FreeTierError/403;
-// verifyZenModels() will discover a newly available free model at runtime.
-const ZEN_FREE_MODELS = [
-  { id: "big-pickle", name: "Big Pickle (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "ling-3.0-flash-fin-free", name: "Ling 3.0 Flash Fin Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "mimo-v2.6-flash-free", name: "MiMo v2.6 Flash Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "muse-spark-1.2-contributor-free", name: "Muse Spark 1.2 Contributor Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "muse-spark-1.3-contributor-free", name: "Muse Spark 1.3 Contributor Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "nemotron-3-ultra-free", name: "Nemotron 3 Ultra Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "nemotron-3.5-lightning-free", name: "Nemotron 3.5 Lightning Free (OpenCode Zen)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-];
-const SENSENOVA_MODELS = [
   {
-    id: "sensenova-6.7-flash-lite",
-    name: "SenseNova 6.7 Flash-Lite",
+    id: "agnes-2.5-pro-theta",
+    name: "Agnes 2.5 Pro Theta",
     api: "openai-completions",
     reasoning: true,
     input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 262144,
+    cost: { input: 0.1, output: 0.3, cacheRead: 0.01, cacheWrite: 0 },
+    contextWindow: 131072,
     maxTokens: 65536,
   },
+];
+
+// ── Curated model allowlists ──
+// Curated metadata is intersected with provider model listings where available;
+// listing failures preserve the allowlist to avoid removing models on outages.
+// Zen pricing is verified separately through the authenticated Console catalog.
+const ZEN_FREE_MODELS = [];
+const SENSENOVA_MODELS = [
   {
     id: "sensenova-6.8-flash-lite",
     name: "SenseNova 6.8 Flash-Lite",
@@ -1182,17 +1167,6 @@ const SENSENOVA_MODELS = [
     maxTokens: 131072,
   },
   {
-    id: "sensenova-u1-fast",
-    name: "SenseNova U1 Fast (image generation)",
-    api: "openai-completions",
-    input: ["text"],
-    opencodeImageModel: true,
-    opencodeImageProvider: "sensenova",
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 262144,
-    maxTokens: 4096,
-  },
-  {
     id: "sensenova-u1.5-lite",
     name: "SenseNova U1.5 Lite (image generation/editing)",
     api: "openai-completions",
@@ -1202,27 +1176,6 @@ const SENSENOVA_MODELS = [
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 262144,
     maxTokens: 4096,
-  },
-  // Added 2026-09-07 per watch #15 — both free (pricing all "0"), 1M context.
-  {
-    id: "deepseek-v4-pro",
-    name: "DeepSeek V4 Pro (via SenseNova)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1048576,
-    maxTokens: 65536,
-  },
-  {
-    id: "kimi-k3",
-    name: "Kimi K3 (via SenseNova)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1048576,
-    maxTokens: 65536,
   },
 ];
 // 免费清单 2026-08-22 经模型广场 biz_info 计价接口逐个核验，并与 /v1/models 在架列表取交集。
@@ -1314,17 +1267,6 @@ const SILICONFLOW_MODELS = [
     contextWindow: 131072,
     maxTokens: 4096,
   },
-  {
-    id: "Wan-AI/Wan2.2-T2V-A14B",
-    name: "Wan2.2 T2V A14B (SiliconFlow video)",
-    api: "openai-completions",
-    input: ["text"],
-    opencodeVideoModel: true,
-    opencodeVideoProvider: "siliconflow",
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 4096,
-  },
 ];
 const MODELSCOPE_MODELS = [
   {
@@ -1372,27 +1314,14 @@ const NVIDIA_MODELS = [
     contextWindow: 131072,
     maxTokens: 65536,
   },
-  // Works but slow generation (~5-18 tok/s).
-  {
-    id: "moonshotai/kimi-k3",
-    name: "Kimi K3 (via NVIDIA NIM)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
 ];
-// AMD Radeon Cloud public free tier. The dashboard labels these models
-// Free; points track the daily quota and are not charges.
+// AMD Radeon Cloud catalog entries. Current authenticated catalog prices are
+// non-zero; AMD_MODELS is kept for visibility and must not be described as free.
 const AMD_MODELS = [
-  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
-  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "Qwen3.8-Flash-Next", name: "Qwen3.8 Flash Next (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "Qwen3.8-27B", name: "Qwen3.8 27B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
-  { id: "MiniCPM5-2B", name: "MiniCPM5 2B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 65536 },
-  { id: "MinerU2.5-Pro", name: "MinerU2.5 Pro (via AMD Radeon Cloud, limited free)", api: "openai-completions", input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 4096, amdLimitedFree: true },
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0.28, output: 0.56, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0.28, output: 0.56, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "Qwen3.8-27B", name: "Qwen3.8 27B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0.035, output: 0.07, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "MiniCPM5-2B", name: "MiniCPM5 2B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0.035, output: 0.07, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 65536 },
 ];
 const CLOUDFLARE_MODELS = [
   {
@@ -1550,11 +1479,6 @@ async function fetchLiveModels(url, headers) {
   }
 }
 
-async function fetchLiveModelIds(url, headers) {
-  const models = await fetchLiveModels(url, headers);
-  return models ? new Set(models.map((model) => model.id ?? model.name).filter(Boolean)) : null;
-}
-
 function authHeader(envKey) {
   return { Authorization: `Bearer ${process.env[envKey] ?? "public"}` };
 }
@@ -1583,80 +1507,8 @@ async function filterToLive(curated, url, headers) {
   return kept.length ? kept : curated;
 }
 
-// ── Zen free-model verification ──
-// /v1/models exposes no pricing. Console /api/config is the pricing
-// authority when an authenticated credential is available; anonymous chat
-// probes can return 403 FreeTierError because they lack official client
-// context, so 403 must never be treated as proof of a paid model.
-async function probeFreeStatus(modelId, apiKey = process.env.OPENCODE_API_KEY) {
-  let res;
-  try {
-    res = await fetch("https://opencode.ai/inference/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...OPENCODE_STATIC_HEADERS,
-        ...(process.env.OPENCODE_ORG_ID ? { "x-opencode-org-id": process.env.OPENCODE_ORG_ID, "x-org-id": process.env.OPENCODE_ORG_ID } : {}),
-        "x-opencode-session": SESSION_ID,
-        "x-opencode-request": generateOpenCodeId("msg_"),
-        Authorization: `Bearer ${apiKey ?? "public"}`,
-      },
-      body: JSON.stringify({ model: modelId, messages: [{ role: "user", content: "hi" }], max_tokens: 1 }),
-      signal: AbortSignal.timeout(20000),
-    });
-  } catch {
-    return "unknown";
-  }
-  if (!res.ok) {
-    // Auth/billing rejection = verified not free. Anything else (5xx, rate
-    // limit) says nothing about pricing — treat as unknown.
-    return [401, 402, 403].includes(res.status) ? "paid" : "unknown";
-  }
-  let json;
-  try { json = await res.json(); } catch { return "unknown"; }
-  if (apiKey) return Number(json?.cost ?? 0) === 0 ? "free" : "paid";
-  return "free";
-}
-// Run async fn over items with bounded concurrency.
-async function mapLimit(items, limit, fn) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const idx = next++;
-      results[idx] = await fn(items[idx]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-function makeDiscoveredModel(id) {
-  return {
-    id,
-    name: id,
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  };
-}
-// Verify the whole live Zen list by probing every id (curated entries use
-// their hand-verified metadata, unknown ones get conservative defaults). This
-// catches models that switched from free to paid while staying listed — they
-// are dropped exactly like renamed/removed ones. If nothing verifies free
-// (e.g. probes all failed), fall back to the curated ∩ live intersection so a
-// gateway outage never empties the provider.
-async function verifyZenModels(liveIds, apiKey = process.env.OPENCODE_API_KEY) {
-  const known = new Map(ZEN_FREE_MODELS.map((m) => [m.id, m]));
-  // Console /api/config is the pricing authority. The public /v1/models and
-  // chat probe can reject non-OpenCode clients with 403 even when the model is
-  // free, so do not use probe results to remove zero-priced curated models.
-  const live = ZEN_FREE_MODELS.filter((model) => liveIds.has(model.id));
-  return live.length ? live : ZEN_FREE_MODELS;
-}
-
+// Zen models are populated from the authenticated Console catalog by
+// refreshOpenCodeZenModels; no static/anonymous fallback is treated as priced.
 // ── Extension entry ──
 // ── Non-blocking startup: register curated/cached lists immediately, then
 // drift-detect live in the background so Pi never waits on the network. ──
@@ -1767,7 +1619,8 @@ async function fetchOpenCodeZenCatalog(apiKey, orgId) {
   if (!models || typeof models !== "object") return null;
   return Object.entries(models).filter(([, model]) => {
     const cost = model?.cost;
-    return cost && Number(cost.input ?? 0) === 0 && Number(cost.output ?? 0) === 0;
+    return cost && Object.hasOwn(cost, "input") && Object.hasOwn(cost, "output") &&
+      Number(cost.input) === 0 && Number(cost.output) === 0;
   }).map(([id, model]) => ({
     id,
     name: model.name ?? id,
@@ -1783,14 +1636,9 @@ async function fetchOpenCodeZenCatalog(apiKey, orgId) {
 async function refreshOpenCodeZenModels(context = {}) {
   const apiKey = context.credential?.access ?? context.credential?.key ?? process.env.OPENCODE_API_KEY;
   if (context.credential?.metadata?.orgId) process.env.OPENCODE_ORG_ID = context.credential.metadata.orgId;
-  if (!apiKey) return ZEN_FREE_MODELS;
+  if (!apiKey) return [];
   const catalog = await fetchOpenCodeZenCatalog(apiKey, context.credential?.metadata?.orgId || process.env.OPENCODE_ORG_ID);
-  if (catalog?.length) return catalog.filter((model) => ZEN_FREE_MODELS.some((curated) => curated.id === model.id));
-  const headers = { ...OPENCODE_STATIC_HEADERS, Authorization: `Bearer ${apiKey}` };
-  const live = await fetchLiveModels("https://opencode.ai/zen/v1/models", headers);
-  if (!live) return ZEN_FREE_MODELS;
-  const ids = new Set(live.map((model) => model.id ?? model.name).filter(Boolean));
-  return verifyZenModels(ids, apiKey);
+  return catalog ?? [];
 }
 
 async function getOpenCodeZenOrgId(access) {
@@ -1913,7 +1761,7 @@ function registerAll(pi, m) {
     name: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", streamSimple: streamNvidia, models: m.nvidia,
   }, "NVIDIA_NIM_API_KEY", { anonymous: true });
   registerManagedProvider(pi, "amd", {
-    name: "AMD Radeon Cloud (免费额度)", baseUrl: AMD_URL, streamSimple: streamAmd, models: m.amd,
+    name: "AMD Radeon Cloud (catalog pricing)", baseUrl: AMD_URL, streamSimple: streamAmd, models: m.amd,
   }, "AMD_API_KEY", { anonymous: true });
   registerManagedProvider(pi, "cloudflare", {
     name: "Cloudflare Workers AI (免费额度)", baseUrl: "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1", streamSimple: streamCloudflare, models: m.cloudflare,
@@ -2014,7 +1862,12 @@ async function amdBrowserSession(includeRecent = false, { openBrowser = true, in
   await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
   let id = 0;
   const pending = new Map();
-  ws.onmessage = (event) => { const message = JSON.parse(event.data); const waiter = pending.get(message.id); if (waiter) { pending.delete(message.id); waiter(message); } };
+  ws.onmessage = (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    const waiter = pending.get(message.id);
+    if (waiter) { pending.delete(message.id); waiter(message); }
+  };
   const call = (method, params = {}, timeoutMs = 20000) => new Promise((resolve, reject) => { const requestId = ++id; const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(`${method} timed out`)); }, timeoutMs); pending.set(requestId, (message) => { clearTimeout(timer); resolve(message); }); ws.send(JSON.stringify({ id: requestId, method, params })); });
   await call("Page.enable");
   if (openBrowser) await call("Page.navigate", { url: "https://developer.amd.com.cn/radeon/profile" });
@@ -2026,7 +1879,8 @@ async function amdBrowserSession(includeRecent = false, { openBrowser = true, in
     await new Promise((resolve) => setTimeout(resolve, 1000));
     result = await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }, includeCapacity ? 60000 : 20000).catch(() => null);
     if (!result) continue;
-    const value = JSON.parse(result.result?.result?.value || "{}");
+    let value;
+    try { value = JSON.parse(result.result?.result?.value || "{}"); } catch { continue; }
     if (!openBrowser && value.status !== 200) throw new Error("AMD login required");
     if (value.status === 200) {
       ws.close();
@@ -2061,11 +1915,11 @@ function formatAmdUsage(data) {
 }
 
 function formatAmdModelCatalog() {
-  const rows = AMD_MODELS.map((model) => `| ${model.id} | ${model.input?.join(" + ") || "text"} | ${model.contextWindow ? `${Math.round(model.contextWindow / 1024)}K` : "—"} | ${model.reasoning ? "✓" : "—"} | ${model.input?.includes("image") ? "✓" : "—"} | ${model.amdLimitedFree ? "Limited Free" : "Free quota"} |`);
+  const rows = AMD_MODELS.map((model) => `| ${model.id} | ${model.input?.join(" + ") || "text"} | ${model.contextWindow ? `${Math.round(model.contextWindow / 1024)}K` : "—"} | ${model.reasoning ? "✓" : "—"} | ${model.input?.includes("image") ? "✓" : "—"} | $${model.cost.input} / $${model.cost.output} per 1M tokens |`);
   return [
     "## Model capabilities and pricing",
     "",
-    "| Model | Input | Context | Reasoning | Vision | Price |",
+    "| Model | Input | Context | Reasoning | Vision | Price (USD input/output per 1M tokens) |",
     "|---|---|---:|:---:|:---:|---|",
     ...rows,
   ].join("\n");
@@ -2073,7 +1927,7 @@ function formatAmdModelCatalog() {
 
 function registerAmdModelCommand(pi) {
   pi.registerCommand("amd-model", {
-    description: "Show AMD Radeon Cloud model capabilities and free-quota pricing",
+    description: "Show AMD Radeon Cloud model capabilities and catalog pricing",
     handler: async (_args, ctx) => {
       try {
         const result = await amdBrowserSession(false, { openBrowser: false });
@@ -2085,7 +1939,7 @@ function registerAmdModelCommand(pi) {
           "",
           formatAmdModelCatalog(),
           "",
-          "_Prices are free within the public daily quota. Points track quota usage and are not charges._",
+          "_Prices are USD per million input/output tokens, based on the authenticated catalog observed for this revision. Confirm current pricing in the AMD Console before use._",
         ].join("\n");
         showModelMarkdown(pi, ctx, "amd-model", markdown);
       } catch (error) {
@@ -2147,10 +2001,6 @@ function registerAmdLoginCommand(pi) {
   });
   pi.registerEntryRenderer("amd-login", (entry) => new Markdown(entry.data.markdown, 1, 0, getMarkdownTheme()));
 }
-function getAmdProfileCookie() {
-  return process.env.AMD_PROFILE_COOKIE?.trim() || "";
-}
-
 async function fetchAmdModelUsage(includeRecent = false) {
   const result = await amdBrowserSession(includeRecent, { openBrowser: false });
   if (result.apiKey) process.env.AMD_API_KEY = result.apiKey;
@@ -2159,7 +2009,10 @@ async function fetchAmdModelUsage(includeRecent = false) {
     try { detail = JSON.parse(result.usage)?.detail || detail; } catch {}
     throw new Error(`AMD profile API returned HTTP ${result.status}: ${detail}`);
   }
-  const data = JSON.parse(result.usage || "{}");
+  let data;
+  try { data = JSON.parse(result.usage || "{}"); } catch {
+    throw new Error("AMD profile API returned invalid JSON");
+  }
   return { data, capacity: result.capacity };
 }
 
@@ -2194,7 +2047,7 @@ function startAmdStatusRefresh() {
 }
 function registerAmdUsageCommand(pi) {
   pi.registerCommand("amd-usage", {
-    description: "Show AMD Radeon Cloud usage (requires AMD_PROFILE_COOKIE)",
+    description: "Show AMD Radeon Cloud usage (requires an authenticated AMD profile)",
     handler: async (args, ctx) => {
       try {
         const includeRecent = /(?:^|\s)(recent|details?)\b/i.test(args || "");
@@ -2202,10 +2055,10 @@ function registerAmdUsageCommand(pi) {
         const data = result.data;
         updateAmdStatus(ctx, data);
         startAmdStatusRefresh();
-        const markdown = ["# AMD Radeon Cloud usage", "", "_Points track the daily free quota; they are not charges._", "", formatAmdUsage(data)].join("\n");
+        const markdown = ["# AMD Radeon Cloud usage", "", "_Usage points are account usage metrics; check AMD Console billing and quota details for the current account._", "", formatAmdUsage(data)].join("\n");
         showModelMarkdown(pi, ctx, "amd-usage", markdown);
       } catch (error) {
-        showModelMarkdown(pi, ctx, "amd-usage", ["# AMD Radeon Cloud usage", "", `**Unable to query usage:** ${String(error?.message || error).replace(/[`\n]/g, " ")}`, "", "Set `AMD_PROFILE_COOKIE` to the Cookie header from the logged-in `/radeon/profile` page."].join("\n"));
+        showModelMarkdown(pi, ctx, "amd-usage", ["# AMD Radeon Cloud usage", "", `**Unable to query usage:** ${String(error?.message || error).replace(/[`\n]/g, " ")}`, "", "Run `/amd-login` to authenticate through the AMD profile page, then retry `/amd-usage`."].join("\n"));
       }
     },
   });
@@ -2334,24 +2187,15 @@ async function verifyAndUpdateModels(pi) {
   // hits a transient 500 during free-tier concurrency storms.
   if (loadCache()) return;
 
-  // Overall safety net so a pathological network can never strand this task.
-  const signal = AbortSignal.timeout(45000);
-  const zenHeaders = {
-    ...OPENCODE_STATIC_HEADERS,
-    Authorization: `Bearer ${process.env.OPENCODE_API_KEY ?? "public"}`,
-  };
-  const [zenLive, sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, amdModels, agnesModels] = await Promise.all([
-    fetchLiveModelIds("https://opencode.ai/zen/v1/models", zenHeaders),
+  const [sensenovaModels, siliconflowModels, modelscopeModels, nvidiaModels, agnesModels] = await Promise.all([
     filterToLive(SENSENOVA_MODELS, "https://token.sensenova.cn/v1/models", authHeader("SENSENOVA_API_KEY")),
     filterToLive(SILICONFLOW_MODELS, "https://api.siliconflow.cn/v1/models", authHeader("SILICONFLOW_API_KEY")),
     filterToLive(MODELSCOPE_MODELS, "https://api-inference.modelscope.cn/v1/models", authHeader("MODELSCOPE_API_KEY")),
     filterToLive(NVIDIA_MODELS, "https://integrate.api.nvidia.com/v1/models", authHeader("NVIDIA_NIM_API_KEY")),
-    AMD_MODELS,
     filterToLive(AGNES_MODELS, "https://apihub.agnes-ai.com/v1/models", authHeader("AGNES_API_KEY")),
   ]);
-  const zenModels = zenLive ? await verifyZenModels(zenLive) : ZEN_FREE_MODELS;
   const verified = {
-    zen: zenModels,
+    zen: ZEN_FREE_MODELS,
     sensenova: sensenovaModels,
     siliconflow: siliconflowModels,
     modelscope: modelscopeModels,
