@@ -6,6 +6,7 @@ minimaxai/minimax-m3
 minimaxai/minimax-m3.1-flash
 moonshotai/kimi-k2.6
 moonshotai/kimi-k3
+moonshotai/kimi-k3.1-pro
 openai/gpt-oss-120b
 openai/gpt-oss-20b
 stepfun-ai/step-3.7-flash
