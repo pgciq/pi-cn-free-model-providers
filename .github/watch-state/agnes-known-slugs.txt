@@ -10,6 +10,7 @@ agnes-30-pro
 agnes-image-20-flash
 agnes-image-21-flash
 agnes-image-25-flash
+agnes-sys1-10
 agnes-video-25
 agnes-video-25-flash
 agnes-video-v20
