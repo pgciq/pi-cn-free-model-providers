@@ -10,6 +10,7 @@
 @cf/black-forest-labs/flux-2-klein-4b
 @cf/black-forest-labs/flux-2-klein-9b
 @cf/cloudflare/clairic
+@cf/cloudflare/clairic-flash
 @cf/cloudflare/clef
 @cf/cloudflare/clef-flash
 @cf/cloudflare/clef-omni
