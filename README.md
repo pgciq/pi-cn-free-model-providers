@@ -272,11 +272,11 @@ Authenticated catalog data observed for this revision reports the listed models 
 | 模型 | 类型 | 上下文 | 输入价格（USD / 1M tokens） | 输出价格（USD / 1M tokens） |
 |---|---|---:|---:|---:|
 | `DeepSeek-V4.1-Flash` | 文本+图像 | 1M | $0.28 | $0.56 |
-| `GLM-5.3-Flash` | 文本 | 256K | $0.28 | $0.56* |
+| `GLM-5.3-Flash` | 文本+图像 | 256K | $0.14 | $0.28 |
 | `Qwen3.8-27B` | 文本 | 256K | $0.035 | $0.07 |
 | `MiniCPM5-2B` | 文本 | 128K | $0.035 | $0.07 |
 
-These models are registered in the provider with non-zero catalog costs, so they are not zero-cost models. Confirm current prices and any account-specific quota in the AMD Console. `GLM-5.3-Flash` had a catalog fingerprint change in the 2026-11-23 scan; its price/context/capability metadata still needs manual confirmation. Streaming probes for it and `DeepSeek-V4.1-Flash` returned HTTP 429, which indicates throttling and is not by itself proof the models are unavailable.
+These models are registered in the provider with non-zero catalog costs, so they are not zero-cost models. Confirm current prices and any account-specific quota in the AMD Console. An authenticated catalog check on 2026-11-27 confirmed `GLM-5.3-Flash` at $0.14/$0.28 per 1M tokens, 256K context, with text and image input; `DeepSeek-V4.1-Flash` cache-read pricing is $0.0056 per 1M tokens. Both models returned successful HTTP 200 chat completions in authenticated probes; earlier HTTP 429 responses were transient throttling.
 
 `DeepSeek-V4-Flash-0731` 当前 API 返回 `model_not_found`，已从扩展白名单移除；`Qwen3.8-Flash-Next` 与 `MinerU2.5-Pro` 在此次核实目录中未保留，因此本扩展未收录。
 
@@ -338,9 +338,9 @@ pi -p --provider agnes-cn --model agnes-cn/agnes-2.5-pro "你好"
 | `agnes-video-2.5-flash` | 视频生成模型 | — | 列表价 $0.025/秒；Angel 用户试用价目前 $0/秒；`/v1/videos` + 状态轮询 |
 | `agnes-2.5-pro-theta` | 付费推理模型（图像输入） | 128K | $0.10/M 输入、$0.30/M 输出 |
 
-> Agnes 官方模型文档目前标注 Image 2.1 Flash 的 Angel 用户试用价为免费、Video 2.5 Flash 列表价 `$0.025/秒` 且 Angel 用户试用价 `$0/秒`。这些优惠并非所有账号通用；此前价格表结构变化及 Image 2.1 Flash 从 Token Plan 配额文档消失，故务必以当前账户控制台为准。零 token 费率不代表图像/视频 API 对所有账号免费。
+> Agnes 官方定价文档当前标注 Image 2.1 Flash 的 Angel 用户试用价为免费、Video 2.5 Flash 列表价 `$0.025/秒` 且 Angel 用户试用价 `$0/秒`。官方说明 Angel 用户试用价适用于 default 用户，不适用于 Agent Plan；应以当前账户账单/控制台为准。Token Plan 当前列出的是 Image/Video 2.5 Flash 配额，未确认 Image 2.1 Flash 的 Token Plan 资格。零试用价不代表所有账户或套餐均免费。
 
-> `agnes-2.0-flash`、`agnes-2.5-flash` 当前不再注册：均已 Deprecated 或不在 Token Plan 配额文档中。Agnes Sys1 1.0 使用专用 `/v1/systemone` 结构化决策 API，不兼容此扩展的通用 chat-completions adapter，因此未收录为聊天模型。
+> `agnes-2.0-flash`、`agnes-2.5-flash` 当前不再注册：均已 Deprecated 或不在 Token Plan 配额文档中。Agnes Sys1 1.0（目录 ID `agnes-sys1-1.0`）使用专用结构化决策 API，不兼容此扩展的通用 chat-completions adapter，因此未收录为聊天模型。
 >
 > Agnes 图像模型使用 `/v1/images/generations`，视频模型使用 `/v1/videos` 并轮询 `/agnesapi?video_id=...`；生成结果分别保存到 `.pi/generated-images/` 和 `.pi/generated-videos/`，保存路径在 TUI 中渲染为可点击的 `file://` 链接（OSC 8 超链接）。
 

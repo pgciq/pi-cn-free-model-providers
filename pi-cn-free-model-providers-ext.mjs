@@ -1276,8 +1276,8 @@ const NVIDIA_MODELS = [];
 // AMD Radeon Cloud catalog entries. Current authenticated catalog prices are
 // non-zero; AMD_MODELS is kept for visibility and must not be described as free.
 const AMD_MODELS = [
-  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0.28, output: 0.56, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
-  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0.28, output: 0.56, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
+  { id: "DeepSeek-V4.1-Flash", name: "DeepSeek V4.1 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0.28, output: 0.56, cacheRead: 0.0056, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+  { id: "GLM-5.3-Flash", name: "GLM 5.3 Flash (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
   { id: "Qwen3.8-27B", name: "Qwen3.8 27B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text", "image"], cost: { input: 0.035, output: 0.07, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262144, maxTokens: 65536 },
   { id: "MiniCPM5-2B", name: "MiniCPM5 2B (via AMD Radeon Cloud)", api: "openai-completions", reasoning: true, input: ["text"], cost: { input: 0.035, output: 0.07, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 65536 },
 ];
