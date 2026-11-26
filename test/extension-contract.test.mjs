@@ -28,6 +28,13 @@ test("all curated model entries have selector-safe id and name", () => {
   }
 });
 
+test("a successful empty live catalog removes stale curated models", () => {
+  assert.match(source, /if\s*\(!liveModels\)\s*return curated;/);
+  assert.match(source, /\/\/ A successful catalog response with no matching allowlisted models[\s\S]*?return kept;/);
+  assert.match(source, /sensenova:\s*curated\.sensenova\.length\s*\?\s*cache\.sensenova\s*\?\?\s*curated\.sensenova\s*:\s*curated\.sensenova/);
+  assert.match(source, /nvidia:\s*curated\.nvidia\.length\s*\?\s*cache\.nvidia\s*\?\?\s*curated\.nvidia\s*:\s*curated\.nvidia/);
+});
+
 test("AMD catalog models carry non-zero catalog prices", () => {
   const match = source.match(/const AMD_MODELS = \[([\s\S]*?)\n\];/);
   assert.ok(match, "expected AMD model catalog");

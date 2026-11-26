@@ -1028,10 +1028,16 @@ async function run(stream, output, model, context, options, cfg) {
       const hint = model.provider === "amd"
         ? "Hint: this AMD model is no longer available under this ID; use /amd-model to review the current AMD catalog."
         : explainModelChurn(response.status, errText);
-      const authHint = response.status === 401 || response.status === 403
+      const zenFreeTierBlocked = model.provider === "opencode-zen"
+        && response.status === 403
+        && /FreeTierError|only be used from within OpenCode/i.test(errText);
+      const authHint = response.status === 401 || (response.status === 403 && !zenFreeTierBlocked)
         ? `\nHint: ${cfg.envKey ?? "API"} may be expired or invalid — run /login ${model.provider} to update it.`
         : "";
-      throw new Error(`${model.provider} API request failed: ${response.status} ${response.statusText}. ${errText.slice(0, 300)}${hint ? `\n${hint}` : ""}${authHint}`);
+      const policyHint = zenFreeTierBlocked
+        ? "\nHint: OpenCode's free tier is restricted to requests made from within OpenCode; this extension cannot use that free tier. Use a provider/API plan that permits third-party clients."
+        : "";
+      throw new Error(`${model.provider} API request failed: ${response.status} ${response.statusText}. ${errText.slice(0, 300)}${hint ? `\n${hint}` : ""}${authHint}${policyHint}`);
     }
     const reader = response.body.getReader();
     await consumeSSEStream(state, reader);
@@ -1135,49 +1141,10 @@ const AGNES_MODELS = [
 // listing failures preserve the allowlist to avoid removing models on outages.
 // Zen pricing is verified separately through the authenticated Console catalog.
 const ZEN_FREE_MODELS = [];
-const SENSENOVA_MODELS = [
-  {
-    id: "sensenova-6.8-flash-lite",
-    name: "SenseNova 6.8 Flash-Lite",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 262144,
-    maxTokens: 65536,
-  },
-  {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek V4 Flash (via SenseNova)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1048576,
-    maxTokens: 65536,
-  },
-  {
-    id: "glm-5.2",
-    name: "GLM-5.2 (via SenseNova)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1048576,
-    maxTokens: 131072,
-  },
-  {
-    id: "sensenova-u1.5-lite",
-    name: "SenseNova U1.5 Lite (image generation/editing)",
-    api: "openai-completions",
-    input: ["text", "image"],
-    opencodeImageModel: true,
-    opencodeImageProvider: "sensenova",
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 262144,
-    maxTokens: 4096,
-  },
-];
+// No SenseNova models are currently listed: the latest authenticated catalog
+// omitted pricing metadata for every previously curated entry, so free access
+// cannot be verified. Add models back only after their pricing is confirmed.
+const SENSENOVA_MODELS = [];
 // 免费清单 2026-08-22 经模型广场 biz_info 计价接口逐个核验，并与 /v1/models 在架列表取交集。
 // 变动提示：nex-agi/Nex-N2-Pro 已转付费（输入¥0.00175/输出¥0.007 每K tokens）；
 // Qwen2.5-7B-Instruct 不再免费；glm-4-9b-chat、Qwen2-7B-Instruct、R1-Distill-Qwen-7B、
@@ -1302,19 +1269,10 @@ const MODELSCOPE_MODELS = [
 // nvidia/llama-3.3-nemotron-super-49b-v1.5 (removed from catalog 2026-08-31,
 // probe HTTP 410 Gone), deepseek-ai/deepseek-v4-pro-0813 (catalog 2026-08-31,
 // no free-tier evidence; Cloudflare carries it behind paid billing).
-const NVIDIA_MODELS = [
-  // Benchmark winner: TTFB 0.8s, ~130 tok/s.
-  {
-    id: "openai/gpt-oss-20b",
-    name: "GPT-OSS 20B (via NVIDIA NIM)",
-    api: "openai-completions",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 65536,
-  },
-];
+// No NVIDIA model is currently curated: gpt-oss-20b disappeared from the
+// live catalog and returned HTTP 410. New catalog entries require a successful
+// free-tier inference check before being listed.
+const NVIDIA_MODELS = [];
 // AMD Radeon Cloud catalog entries. Current authenticated catalog prices are
 // non-zero; AMD_MODELS is kept for visibility and must not be described as free.
 const AMD_MODELS = [
@@ -1504,7 +1462,10 @@ async function filterToLive(curated, url, headers) {
   const kept = curated
     .filter((model) => byId.has(model.id))
     .map((model) => mergeLiveModel(model, byId.get(model.id)));
-  return kept.length ? kept : curated;
+  // A successful catalog response with no matching allowlisted models is
+  // authoritative: return an empty list. Only a failed/unparseable request
+  // (fetchLiveModels returns null) preserves the curated fallback above.
+  return kept;
 }
 
 // Zen models are populated from the authenticated Console catalog by
@@ -1556,10 +1517,12 @@ function initialModels() {
   const curated = curatedModels();
   return {
     zen: curated.zen,
-    sensenova: cache.sensenova ?? curated.sensenova,
+    // Do not resurrect stale cached entries after a provider's curated list is
+    // deliberately emptied due to unverified pricing or withdrawn models.
+    sensenova: curated.sensenova.length ? cache.sensenova ?? curated.sensenova : curated.sensenova,
     siliconflow: cache.siliconflow ?? curated.siliconflow,
     modelscope: cache.modelscope ?? curated.modelscope,
-    nvidia: cache.nvidia ?? curated.nvidia,
+    nvidia: curated.nvidia.length ? cache.nvidia ?? curated.nvidia : curated.nvidia,
     amd: curated.amd,
     cloudflare: curated.cloudflare,
     agnes: cache.agnes ?? curated.agnes,
